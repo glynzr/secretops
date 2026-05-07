@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   FiGitlab, FiShield, FiBell, FiMail, FiCpu,
   FiEye, FiEyeOff, FiChevronDown, FiChevronUp,
@@ -251,22 +251,40 @@ function AddAIConnectorModal({ onDone, orgId }: { onDone: () => void; orgId: str
 
 // ── Collapsible integration row ───────────────────────────────────────────────
 
-function IntegrationRow({ integ, oApi, expanded, onToggle, conn, forms, setForms }: any) {
+function IntegrationRow({ integ, oApi, expanded, onToggle, conn, onSaved }: any) {
+  const [form, setForm]       = useState<Record<string, string>>({})
   const [reveal, setReveal]   = useState<Record<string, boolean>>({})
   const [testing, setTesting] = useState(false)
   const [result, setResult]   = useState<{ ok: boolean; msg: string } | null>(null)
+  const initialized           = useRef(false)
   const connected = conn?.status === 'connected'
   const { Icon } = integ
 
+  // Pre-fill saved values once when the connection data first arrives.
+  // The ref guard ensures user edits are never overwritten by subsequent
+  // parent re-renders or status refreshes.
+  useEffect(() => {
+    if (!initialized.current && conn?.config) {
+      const clean: Record<string, string> = {}
+      Object.entries(conn.config).forEach(([k, v]) => {
+        const val = String(v ?? '')
+        if (!val.includes('•')) clean[k] = val
+      })
+      setForm(clean)
+      initialized.current = true
+    }
+  }, [conn])
+
   const setField = (key: string, val: string) =>
-    setForms((f: any) => ({ ...f, [integ.type]: { ...(f[integ.type] || {}), [key]: val } }))
+    setForm(f => ({ ...f, [key]: val }))
 
   const test = async () => {
     setTesting(true); setResult(null)
     try {
-      await oApi.saveConnection(integ.type, forms[integ.type] || {})
+      await oApi.saveConnection(integ.type, form)
       const r = await oApi.testConnection(integ.type)
       setResult({ ok: r.connected, msg: r.error || (r.connected ? 'Connected successfully' : 'Connection failed') })
+      onSaved?.()
     } catch (e: any) { setResult({ ok: false, msg: e.message }) }
     finally { setTesting(false) }
   }
@@ -316,8 +334,8 @@ function IntegrationRow({ integ, oApi, expanded, onToggle, conn, forms, setForms
                   <Input
                     style={{ flex: 1 }}
                     type={field.secret && !reveal[field.key] ? 'password' : 'text'}
-                    placeholder={field.secret && connected && !forms[integ.type]?.[field.key] ? 'Already saved — re-enter to change' : field.placeholder}
-                    value={forms[integ.type]?.[field.key] || ''}
+                    placeholder={field.secret && connected && !form[field.key] ? 'Already saved — re-enter to change' : field.placeholder}
+                    value={form[field.key] || ''}
                     onChange={e => setField(field.key, e.target.value)}
                   />
                   {field.secret && (
@@ -345,7 +363,7 @@ function IntegrationRow({ integ, oApi, expanded, onToggle, conn, forms, setForms
               {testing ? <><FiLoader size={12} className="spin" /> Testing...</> : 'Save & Test'}
             </Button>
             {connected && (
-              <Button variant="outline" size="sm" onClick={() => oApi.deleteConnection(integ.type)}
+              <Button variant="outline" size="sm" onClick={() => oApi.deleteConnection(integ.type).then(onSaved)}
                 style={{ color: 'var(--red)', borderColor: 'rgba(248,81,73,0.3)' }}>
                 Disconnect
               </Button>
@@ -361,27 +379,17 @@ function IntegrationRow({ integ, oApi, expanded, onToggle, conn, forms, setForms
 
 export default function IntegrationsPage({ orgId, onReady }: { orgId: string; onReady: () => void }) {
   const oApi = orgApi(orgId)
-  const [conns, setConns]     = useState<Record<string, Connection>>({})
-  const [forms, setForms]     = useState<Record<string, Record<string, string>>>({})
+  const [conns, setConns]       = useState<Record<string, Connection>>({})
   const [expanded, setExpanded] = useState<string | null>('gitlab')
   const [showAIModal, setShowAIModal] = useState(false)
 
-  const reload = () => oApi.listConnections().then(list => {
+  const refreshConns = () => oApi.listConnections().then(list => {
     const m: Record<string, Connection> = {}
-    const f: Record<string, Record<string, string>> = {}
-    list.forEach(c => {
-      m[c.type] = c
-      const clean: Record<string, string> = {}
-      Object.entries(c.config || {}).forEach(([k, v]) => {
-        const val = String(v ?? '')
-        if (!val.includes('•')) clean[k] = val
-      })
-      f[c.type] = clean
-    })
-    setConns(m); setForms(f)
+    list.forEach(c => { m[c.type] = c })
+    setConns(m)
   }).catch(() => {})
 
-  useEffect(() => { reload() }, [orgId])
+  useEffect(() => { refreshConns() }, [orgId])
 
   const connectedAIs = AI_PROVIDERS.filter(p => conns[p.type]?.status === 'connected')
   const gitlabOk = conns['gitlab']?.status === 'connected'
@@ -417,7 +425,7 @@ export default function IntegrationsPage({ orgId, onReady }: { orgId: string; on
               <div style={{ fontSize: 12, color: 'var(--faint)', marginTop: 2 }}>{p.vendor}</div>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <Button variant="outline" size="sm" onClick={() => oApi.deleteConnection(p.type).then(reload)} style={{ color: 'var(--red)', borderColor: 'rgba(248,81,73,0.3)' }}>
+              <Button variant="outline" size="sm" onClick={() => oApi.deleteConnection(p.type).then(refreshConns)} style={{ color: 'var(--red)', borderColor: 'rgba(248,81,73,0.3)' }}>
                 <FiTrash2 size={11} /> Remove
               </Button>
             </div>
@@ -464,8 +472,7 @@ export default function IntegrationsPage({ orgId, onReady }: { orgId: string; on
             expanded={expanded === integ.type}
             onToggle={() => setExpanded(expanded === integ.type ? null : integ.type)}
             conn={conns[integ.type]}
-            forms={forms}
-            setForms={(updater: any) => { setForms(updater); setTimeout(reload, 400) }}
+            onSaved={refreshConns}
           />
         ))}
       </div>
@@ -493,7 +500,7 @@ export default function IntegrationsPage({ orgId, onReady }: { orgId: string; on
 
       {/* Add AI connector modal */}
       {showAIModal && (
-        <AddAIConnectorModal orgId={orgId} onDone={() => { setShowAIModal(false); reload() }} />
+        <AddAIConnectorModal orgId={orgId} onDone={() => { setShowAIModal(false); refreshConns() }} />
       )}
     </div>
   )

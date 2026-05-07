@@ -12,3 +12,4 @@ __pycache__/
 /tmp/secretops_*
 .claude
 .vscode/
+.DS_Store
