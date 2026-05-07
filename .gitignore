@@ -1,0 +1,14 @@
+node_modules/
+.next/
+*.db
+*.db-wal
+*.db-shm
+dist/
+build/
+__pycache__/
+*.pyc
+.env
+*.log
+/tmp/secretops_*
+.claude
+.vscode/

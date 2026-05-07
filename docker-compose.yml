@@ -1,0 +1,41 @@
+version: "3.9"
+services:
+  backend:
+    build: ./backend
+    ports: ["8080:8080"]
+    volumes: ["backend_data:/app/data"]
+    environment:
+      PORT: "8080"
+      DB_PATH: "/app/data/secretops.db"
+    networks: [secretops]
+
+  cli-service:
+    build: ./cli
+    ports: ["5001:5001"]
+    environment:
+      BACKEND_URL: "http://backend:8080"
+      CLI_PORT: "5001"
+    networks: [secretops]
+
+  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8080/api/v1"
+    networks: [secretops]
+
+  vault:
+    image: hashicorp/vault:1.17
+    ports: ["8200:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add: [IPC_LOCK]
+    networks: [secretops]
+
+volumes:
+  backend_data:
+
+networks:
+  secretops:
+    driver: bridge
