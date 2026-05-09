@@ -1,0 +1,48 @@
+{
+  "Claude 3.5 Sonnet": {
+    "f1": 0.921,
+    "cost_per_detection_call_usd": 0.00465,
+    "cost_per_remediation_call_usd": 0.0069,
+    "cost_500_file_scan_usd": 1.395,
+    "cost_100_remediations_usd": 0.69,
+    "rpm_limit": 1000,
+    "data_leaves_network": "YES (ZDR req.)"
+  },
+  "GPT-4o": {
+    "f1": 0.926,
+    "cost_per_detection_call_usd": 0.003575,
+    "cost_per_remediation_call_usd": 0.005,
+    "cost_500_file_scan_usd": 1.0725,
+    "cost_100_remediations_usd": 0.5,
+    "rpm_limit": 500,
+    "data_leaves_network": "YES (ZDR req.)"
+  },
+  "DeepSeek V3": {
+    "f1": 0.903,
+    "cost_per_detection_call_usd": 0.000199,
+    "cost_per_remediation_call_usd": 0.000386,
+    "cost_500_file_scan_usd": 0.0595,
+    "cost_100_remediations_usd": 0.0386,
+    "rpm_limit": 999999,
+    "data_leaves_network": "YES (PIPL risk)"
+  },
+  "Gemini 2.0 Flash": {
+    "f1": 0.86,
+    "cost_per_detection_call_usd": 0.000143,
+    "cost_per_remediation_call_usd": 0.0002,
+    "cost_500_file_scan_usd": 0.0429,
+    "cost_100_remediations_usd": 0.02,
+    "rpm_limit": 2000,
+    "data_leaves_network": "YES"
+  },
+  "Ollama LLaMA-3.1-8B": {
+    "f1": 0.9,
+    "cost_per_detection_call_usd": 0.0,
+    "cost_per_remediation_call_usd": 0.0,
+    "cost_500_file_scan_usd": 0.0,
+    "cost_100_remediations_usd": 0.0,
+    "rpm_limit": 999999,
+    "data_leaves_network": "NO (on-premise)",
+    "gpu_note": "A10G GPU ~$0.75/hr. At 890ms/call, costs ~$0.0002/call in GPU time."
+  }
+}

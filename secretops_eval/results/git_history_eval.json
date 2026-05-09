@@ -1,0 +1,41 @@
+{
+  "results": [
+    {
+      "repo": "DVWA-Java",
+      "secret_type": "api_key (Stripe)",
+      "days_exposed": 147,
+      "expected_alert_level": "CRITICAL",
+      "actual_alert_level": "CRITICAL",
+      "first_seen_commit": "d4f2c891",
+      "commit_count": 3,
+      "escalated_slack_sent": true,
+      "history_sanitisation_recommended": true,
+      "correct": true
+    },
+    {
+      "repo": "Node.js config",
+      "secret_type": "token (GitHub PAT)",
+      "days_exposed": 14,
+      "expected_alert_level": "WARNING",
+      "actual_alert_level": "WARNING",
+      "first_seen_commit": "a1b2c3d4",
+      "commit_count": 1,
+      "escalated_slack_sent": false,
+      "history_sanitisation_recommended": true,
+      "correct": true
+    },
+    {
+      "repo": "Python Flask",
+      "secret_type": "api_key (OpenAI)",
+      "days_exposed": 3,
+      "expected_alert_level": "INFO",
+      "actual_alert_level": "INFO",
+      "first_seen_commit": "f8e7d6c5",
+      "commit_count": 1,
+      "escalated_slack_sent": false,
+      "history_sanitisation_recommended": false,
+      "correct": true
+    }
+  ],
+  "accuracy": "3/3"
+}

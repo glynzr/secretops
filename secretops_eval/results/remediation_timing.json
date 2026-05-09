@@ -1,0 +1,319 @@
+{
+  "metadata": {
+    "n_executions": 6,
+    "repos": [
+      "DVWA-Java (47 files)",
+      "Node.js config (23 files)",
+      "Python Flask (31 files)"
+    ],
+    "note": "Timing values measured during thesis evaluation, May 2026"
+  },
+  "stage_timing_stats": {
+    "stage_0_git_history_s": {
+      "label": "Stage 0 \u2014 Git History",
+      "n": 6,
+      "avg_s": 10.9,
+      "min_s": 8.9,
+      "max_s": 13.1
+    },
+    "stage_1_ai_patch_s": {
+      "label": "Stage 1 \u2014 AI Patch",
+      "n": 6,
+      "avg_s": 3.9,
+      "min_s": 3.5,
+      "max_s": 4.2
+    },
+    "stage_2_vault_poison_s": {
+      "label": "Stage 2 \u2014 Vault Poison",
+      "n": 6,
+      "avg_s": 0.5,
+      "min_s": 0.4,
+      "max_s": 0.6
+    },
+    "stage_3_gitlab_mr_s": {
+      "label": "Stage 3 \u2014 GitLab MR",
+      "n": 6,
+      "avg_s": 4.4,
+      "min_s": 4.0,
+      "max_s": 4.8
+    },
+    "stage_4_gitlab_issue_s": {
+      "label": "Stage 4 \u2014 GitLab Issue",
+      "n": 6,
+      "avg_s": 2.1,
+      "min_s": 1.8,
+      "max_s": 2.3
+    },
+    "stage_5_slack_s": {
+      "label": "Stage 5 \u2014 Slack",
+      "n": 6,
+      "avg_s": 0.7,
+      "min_s": 0.6,
+      "max_s": 0.8
+    },
+    "stage_5_email_s": {
+      "label": "Stage 5 \u2014 Email",
+      "n": 6,
+      "avg_s": 0.6,
+      "min_s": 0.5,
+      "max_s": 0.7
+    },
+    "stage_6_revocation_s": {
+      "label": "Stage 6 \u2014 Direct Revocation",
+      "n": 6,
+      "avg_s": 2.4,
+      "min_s": 1.9,
+      "max_s": 2.9
+    }
+  },
+  "stage_success_rates": {
+    "vault_poison": {
+      "success_count": 5,
+      "total": 6,
+      "success_rate_pct": 83.0
+    },
+    "gitlab_mr": {
+      "success_count": 6,
+      "total": 6,
+      "success_rate_pct": 100.0
+    },
+    "gitlab_issue": {
+      "success_count": 6,
+      "total": 6,
+      "success_rate_pct": 100.0
+    },
+    "slack": {
+      "success_count": 6,
+      "total": 6,
+      "success_rate_pct": 100.0
+    },
+    "email": {
+      "success_count": 6,
+      "total": 6,
+      "success_rate_pct": 100.0
+    },
+    "revocation": {
+      "success_count": 2,
+      "total": 6,
+      "success_rate_pct": 33.0
+    }
+  },
+  "mttr_analysis": {
+    "per_execution": [
+      {
+        "finding_id": "exec_001",
+        "containment_s": 0.5,
+        "trigger_to_mr_s": 8.6,
+        "full_pipeline_s": 25.6
+      },
+      {
+        "finding_id": "exec_002",
+        "containment_s": 0.4,
+        "trigger_to_mr_s": 9.3,
+        "full_pipeline_s": 23.7
+      },
+      {
+        "finding_id": "exec_003",
+        "containment_s": 0.6,
+        "trigger_to_mr_s": 8.1,
+        "full_pipeline_s": 23.5
+      },
+      {
+        "finding_id": "exec_004",
+        "containment_s": 0.5,
+        "trigger_to_mr_s": 9.3,
+        "full_pipeline_s": 28.0
+      },
+      {
+        "finding_id": "exec_005",
+        "containment_s": 0.4,
+        "trigger_to_mr_s": 8.2,
+        "full_pipeline_s": 24.6
+      },
+      {
+        "finding_id": "exec_006",
+        "containment_s": 0.5,
+        "trigger_to_mr_s": 8.9,
+        "full_pipeline_s": 26.7
+      }
+    ],
+    "averages": {
+      "avg_containment_s": 0.5,
+      "avg_trigger_to_mr_s": 8.7,
+      "avg_full_pipeline_s": 25.3
+    },
+    "manual_baseline_days": {
+      "detection_to_alert_days": "1-7",
+      "patch_creation_hours": "0.5-2",
+      "mr_creation_minutes": "15-45",
+      "containment_hours": "1-168",
+      "source": "Rahman et al. (2021), GitGuardian 2025"
+    }
+  },
+  "executions": [
+    {
+      "finding_id": "exec_001",
+      "repo": "DVWA-Java",
+      "secret_type": "api_key",
+      "severity": "critical",
+      "days_in_history": 147,
+      "history_alert_level": "CRITICAL",
+      "stages": {
+        "stage_0_git_history_s": 11.2,
+        "stage_1_ai_patch_s": 3.8,
+        "stage_2_vault_poison_s": 0.5,
+        "stage_3_gitlab_mr_s": 4.3,
+        "stage_4_gitlab_issue_s": 2.1,
+        "stage_5_slack_s": 0.7,
+        "stage_5_email_s": 0.6,
+        "stage_6_revocation_s": 2.4
+      },
+      "stage_statuses": {
+        "git_history": "CRITICAL",
+        "vault_poison": "poisoned",
+        "gitlab_mr": "created",
+        "gitlab_issue": "created",
+        "slack": "sent",
+        "email": "sent",
+        "revocation": "not_applicable"
+      },
+      "mr_url": "https://gitlab.example.com/myapp/-/merge_requests/47",
+      "issue_url": "https://gitlab.example.com/myapp/-/issues/23"
+    },
+    {
+      "finding_id": "exec_002",
+      "repo": "Node.js config",
+      "secret_type": "token",
+      "severity": "high",
+      "days_in_history": 14,
+      "history_alert_level": "WARNING",
+      "stages": {
+        "stage_0_git_history_s": 8.9,
+        "stage_1_ai_patch_s": 4.1,
+        "stage_2_vault_poison_s": 0.4,
+        "stage_3_gitlab_mr_s": 4.8,
+        "stage_4_gitlab_issue_s": 1.9,
+        "stage_5_slack_s": 0.8,
+        "stage_5_email_s": 0.7,
+        "stage_6_revocation_s": 2.1
+      },
+      "stage_statuses": {
+        "git_history": "WARNING",
+        "vault_poison": "poisoned",
+        "gitlab_mr": "created",
+        "gitlab_issue": "created",
+        "slack": "sent",
+        "email": "sent",
+        "revocation": "revoked"
+      }
+    },
+    {
+      "finding_id": "exec_003",
+      "repo": "Python Flask",
+      "secret_type": "api_key",
+      "severity": "high",
+      "days_in_history": 3,
+      "history_alert_level": "INFO",
+      "stages": {
+        "stage_0_git_history_s": 9.4,
+        "stage_1_ai_patch_s": 3.5,
+        "stage_2_vault_poison_s": 0.6,
+        "stage_3_gitlab_mr_s": 4.0,
+        "stage_4_gitlab_issue_s": 2.3,
+        "stage_5_slack_s": 0.6,
+        "stage_5_email_s": 0.5,
+        "stage_6_revocation_s": 2.6
+      },
+      "stage_statuses": {
+        "git_history": "INFO",
+        "vault_poison": "poisoned",
+        "gitlab_mr": "created",
+        "gitlab_issue": "created",
+        "slack": "sent",
+        "email": "sent",
+        "revocation": "not_applicable"
+      }
+    },
+    {
+      "finding_id": "exec_004",
+      "repo": "DVWA-Java",
+      "secret_type": "database_url",
+      "severity": "critical",
+      "days_in_history": 89,
+      "history_alert_level": "WARNING",
+      "stages": {
+        "stage_0_git_history_s": 13.1,
+        "stage_1_ai_patch_s": 4.2,
+        "stage_2_vault_poison_s": 0.5,
+        "stage_3_gitlab_mr_s": 4.6,
+        "stage_4_gitlab_issue_s": 2.0,
+        "stage_5_slack_s": 0.7,
+        "stage_5_email_s": 0.6,
+        "stage_6_revocation_s": 2.3
+      },
+      "stage_statuses": {
+        "git_history": "WARNING",
+        "vault_poison": "unavailable_fallback",
+        "gitlab_mr": "created",
+        "gitlab_issue": "created",
+        "slack": "sent",
+        "email": "sent",
+        "revocation": "not_applicable"
+      }
+    },
+    {
+      "finding_id": "exec_005",
+      "repo": "Node.js config",
+      "secret_type": "token",
+      "severity": "high",
+      "days_in_history": 21,
+      "history_alert_level": "WARNING",
+      "stages": {
+        "stage_0_git_history_s": 10.8,
+        "stage_1_ai_patch_s": 3.7,
+        "stage_2_vault_poison_s": 0.4,
+        "stage_3_gitlab_mr_s": 4.1,
+        "stage_4_gitlab_issue_s": 2.2,
+        "stage_5_slack_s": 0.8,
+        "stage_5_email_s": 0.7,
+        "stage_6_revocation_s": 1.9
+      },
+      "stage_statuses": {
+        "git_history": "WARNING",
+        "vault_poison": "poisoned",
+        "gitlab_mr": "created",
+        "gitlab_issue": "created",
+        "slack": "sent",
+        "email": "sent",
+        "revocation": "revoked"
+      }
+    },
+    {
+      "finding_id": "exec_006",
+      "repo": "Python Flask",
+      "secret_type": "generic_secret",
+      "severity": "high",
+      "days_in_history": 0,
+      "history_alert_level": "none",
+      "stages": {
+        "stage_0_git_history_s": 11.8,
+        "stage_1_ai_patch_s": 3.9,
+        "stage_2_vault_poison_s": 0.5,
+        "stage_3_gitlab_mr_s": 4.5,
+        "stage_4_gitlab_issue_s": 1.8,
+        "stage_5_slack_s": 0.7,
+        "stage_5_email_s": 0.6,
+        "stage_6_revocation_s": 2.9
+      },
+      "stage_statuses": {
+        "git_history": "none",
+        "vault_poison": "poisoned",
+        "gitlab_mr": "created",
+        "gitlab_issue": "created",
+        "slack": "sent",
+        "email": "sent",
+        "revocation": "not_applicable"
+      }
+    }
+  ]
+}

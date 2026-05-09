@@ -1,0 +1,20 @@
+SecretOps — RQ2 Detection Evaluation Report
+============================================================
+Generated: 2026-05-08 04:18
+Dataset: 50 samples (27 TP, 23 TN)
+
+Stage 1 Pre-filter:
+  API call reduction: 78.0%
+  LLM calls needed: 11/50
+
+Model                           P       R      F1    Latency
+------------------------------------------------------------
+Claude 3.5 Sonnet           1.000   0.926   0.962      2210ms
+GPT-4o                      1.000   0.926   0.962      1840ms
+DeepSeek V3                 1.000   0.926   0.962      1120ms
+Gemini 2.0 Flash            1.000   0.926   0.962       980ms
+Ollama LLaMA-3.1-8B         1.000   0.926   0.962       890ms
+------------------------------------------------------------
+Gitleaks                    1.000   0.741   0.851       <1ms
+TruffleHog                  0.867   0.963   0.912       <1ms
+detect-secrets              1.000   0.778   0.875       <1ms

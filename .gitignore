@@ -13,3 +13,5 @@ __pycache__/
 .claude
 .vscode/
 .DS_Store
+secretops_eval/data/
+secretops_eval/logs/

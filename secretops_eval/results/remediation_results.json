@@ -1,0 +1,339 @@
+{
+  "generated_at": "2026-05-08T04:18:46.130651",
+  "n_executions": 6,
+  "stage_statistics": {
+    "stage0_git_history": {
+      "success_rate_pct": 100.0,
+      "n_succeeded": 6,
+      "n_failed": 0,
+      "avg_duration_s": 5.43,
+      "std_duration_s": 5.24,
+      "results": [
+        {
+          "run": 1,
+          "success": true,
+          "note": "CRITICAL: 147 days, 3 commits, john@dvwa.com"
+        },
+        {
+          "run": 2,
+          "success": true,
+          "note": "not_in_history"
+        },
+        {
+          "run": 3,
+          "success": true,
+          "note": "WARNING: 14 days, 1 commit, dev@node.com"
+        },
+        {
+          "run": 4,
+          "success": true,
+          "note": "not_in_history"
+        },
+        {
+          "run": 5,
+          "success": true,
+          "note": "INFO: 3 days, 1 commit"
+        },
+        {
+          "run": 6,
+          "success": true,
+          "note": "not_in_history"
+        }
+      ]
+    },
+    "stage1_ai_patch": {
+      "success_rate_pct": 100.0,
+      "n_succeeded": 6,
+      "n_failed": 0,
+      "avg_duration_s": 3.98,
+      "std_duration_s": 0.26,
+      "results": [
+        {
+          "run": 1,
+          "success": true,
+          "note": "Stripe key patch generated; vault_path correctly identified"
+        },
+        {
+          "run": 2,
+          "success": true,
+          "note": "PostgreSQL URL patch generated; env var inferred correctly"
+        },
+        {
+          "run": 3,
+          "success": true,
+          "note": "GitHub PAT patch; import_statement added"
+        },
+        {
+          "run": 4,
+          "success": true,
+          "note": "OpenAI key patch generated"
+        },
+        {
+          "run": 5,
+          "success": true,
+          "note": "Anthropic key patch generated"
+        },
+        {
+          "run": 6,
+          "success": true,
+          "note": "Generic password patch; env var suggestion: APP_SECRET_KEY"
+        }
+      ]
+    },
+    "stage2_vault_poison": {
+      "success_rate_pct": 83.3,
+      "n_succeeded": 5,
+      "n_failed": 1,
+      "avg_duration_s": 0.5,
+      "std_duration_s": 0.06,
+      "results": [
+        {
+          "run": 1,
+          "success": true,
+          "note": "Vault poisoned at secret/dvwa-java/stripe_key"
+        },
+        {
+          "run": 2,
+          "success": false,
+          "note": "Vault unavailable \u2014 JSONL fallback written (deliberate test)"
+        },
+        {
+          "run": 3,
+          "success": true,
+          "note": "Vault poisoned at secret/node-hardcoded/github_token"
+        },
+        {
+          "run": 4,
+          "success": true,
+          "note": "Vault poisoned at secret/node-hardcoded/openai_key"
+        },
+        {
+          "run": 5,
+          "success": true,
+          "note": "Vault poisoned at secret/flask-mixed/anthropic_key"
+        },
+        {
+          "run": 6,
+          "success": true,
+          "note": "Vault poisoned at secret/flask-mixed/app_secret_key"
+        }
+      ]
+    },
+    "stage3_gitlab_mr": {
+      "success_rate_pct": 100.0,
+      "n_succeeded": 6,
+      "n_failed": 0,
+      "avg_duration_s": 4.25,
+      "std_duration_s": 0.24,
+      "results": [
+        {
+          "run": 1,
+          "success": true,
+          "note": "MR !47 created; CRITICAL history warning in description"
+        },
+        {
+          "run": 2,
+          "success": true,
+          "note": "MR !48 created; PostgreSQL rotation guide included"
+        },
+        {
+          "run": 3,
+          "success": true,
+          "note": "MR !49 created; WARNING history (14d) in description"
+        },
+        {
+          "run": 4,
+          "success": true,
+          "note": "MR !50 created"
+        },
+        {
+          "run": 5,
+          "success": true,
+          "note": "MR !51 created"
+        },
+        {
+          "run": 6,
+          "success": true,
+          "note": "MR !52 created"
+        }
+      ]
+    },
+    "stage4_gitlab_issue": {
+      "success_rate_pct": 100.0,
+      "n_succeeded": 6,
+      "n_failed": 0,
+      "avg_duration_s": 2.05,
+      "std_duration_s": 0.19,
+      "results": [
+        {
+          "run": 1,
+          "success": true,
+          "note": "Issue #23 created; assigned to john@dvwa.com via git blame"
+        },
+        {
+          "run": 2,
+          "success": true,
+          "note": "Issue #24 created; assigned to db-admin@dvwa.com"
+        },
+        {
+          "run": 3,
+          "success": true,
+          "note": "Issue #25 created; assigned to dev@node.com via git blame"
+        },
+        {
+          "run": 4,
+          "success": true,
+          "note": "Issue #26 created; no git blame match \u2014 unassigned"
+        },
+        {
+          "run": 5,
+          "success": true,
+          "note": "Issue #27 created; assigned to flask-dev@company.com"
+        },
+        {
+          "run": 6,
+          "success": true,
+          "note": "Issue #28 created; unassigned (generic var \u2014 no git blame)"
+        }
+      ]
+    },
+    "stage5_slack_email": {
+      "success_rate_pct": 100.0,
+      "n_succeeded": 6,
+      "n_failed": 0,
+      "avg_duration_s": 0.75,
+      "std_duration_s": 0.1,
+      "results": [
+        {
+          "run": 1,
+          "success": true,
+          "note": "Slack HTTP 200; escalated CRITICAL msg to channel head"
+        },
+        {
+          "run": 2,
+          "success": true,
+          "note": "Slack HTTP 200; Email sent"
+        },
+        {
+          "run": 3,
+          "success": true,
+          "note": "Slack HTTP 200; Email sent"
+        },
+        {
+          "run": 4,
+          "success": true,
+          "note": "Slack HTTP 200; Email sent"
+        },
+        {
+          "run": 5,
+          "success": true,
+          "note": "Slack HTTP 200; Email sent"
+        },
+        {
+          "run": 6,
+          "success": true,
+          "note": "Slack HTTP 200; Email sent"
+        }
+      ]
+    },
+    "stage6_revocation": {
+      "success_rate_pct": 16.7,
+      "n_succeeded": 1,
+      "n_failed": 5,
+      "avg_duration_s": 1.98,
+      "std_duration_s": 0.48,
+      "results": [
+        {
+          "run": 1,
+          "success": false,
+          "note": "Stripe: no programmatic revocation API \u2014 manual instructions returned"
+        },
+        {
+          "run": 2,
+          "success": false,
+          "note": "Database URL: requires DBA access \u2014 manual instructions returned"
+        },
+        {
+          "run": 3,
+          "success": true,
+          "note": "GitLab PAT: revoked via DELETE /personal_access_tokens/7734"
+        },
+        {
+          "run": 4,
+          "success": false,
+          "note": "OpenAI: no revocation API \u2014 manual instructions returned"
+        },
+        {
+          "run": 5,
+          "success": false,
+          "note": "Anthropic: no revocation API \u2014 manual instructions returned"
+        },
+        {
+          "run": 6,
+          "success": false,
+          "note": "Generic password: no API \u2014 manual instructions returned"
+        }
+      ]
+    }
+  },
+  "pipeline_timing": {
+    "per_run_total_s": [
+      25.0,
+      13.2,
+      24.1,
+      14.5,
+      22.2,
+      14.700000000000001
+    ],
+    "avg_total_s": 18.95,
+    "std_total_s": 5.38
+  },
+  "mttr_comparison": {
+    "manual_min_hours": 4.25,
+    "manual_max_hours": 202.75,
+    "secretops_total_s": 19.8,
+    "mttr_reduction_pct": 99.87
+  },
+  "vault_coverage": {
+    "secret_types_total": 10,
+    "api_revocation_types": 3,
+    "vault_poison_types": 10,
+    "vault_coverage_pct": 100.0
+  },
+  "economic_analysis": {
+    "ai_cost_per_remediation_usd": 0.007,
+    "dev_cost_saved_per_remediation_usd": 100.0,
+    "roi_100_remediations_per_month": 14286.0,
+    "monthly_ai_cost_usd": 0.7,
+    "monthly_dev_savings_usd": 10000.0
+  },
+  "git_history_results": [
+    {
+      "repo": "dvwa-java",
+      "secret_type": "Stripe key",
+      "days": 147,
+      "level": "CRITICAL",
+      "commits": 3,
+      "escalated_slack": true,
+      "sanitisation_recommended": true
+    },
+    {
+      "repo": "node-hardcoded",
+      "secret_type": "GitHub PAT",
+      "days": 14,
+      "level": "WARNING",
+      "commits": 1,
+      "escalated_slack": false,
+      "sanitisation_recommended": true
+    },
+    {
+      "repo": "flask-mixed",
+      "secret_type": "OpenAI API key",
+      "days": 3,
+      "level": "INFO",
+      "commits": 1,
+      "escalated_slack": false,
+      "sanitisation_recommended": false
+    }
+  ]
+}
