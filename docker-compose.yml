@@ -1,41 +1,83 @@
-version: "3.9"
 services:
-  backend:
-    build: ./backend
-    ports: ["8080:8080"]
-    volumes: ["backend_data:/app/data"]
-    environment:
-      PORT: "8080"
-      DB_PATH: "/app/data/secretops.db"
-    networks: [secretops]
-
-  cli-service:
-    build: ./cli
-    ports: ["5001:5001"]
-    environment:
-      BACKEND_URL: "http://backend:8080"
-      CLI_PORT: "5001"
-    networks: [secretops]
-
-  frontend:
-    build: ./frontend
-    ports: ["3000:3000"]
-    environment:
-      NEXT_PUBLIC_API_URL: "http://localhost:8080/api/v1"
-    networks: [secretops]
-
   vault:
     image: hashicorp/vault:1.17
-    ports: ["8200:8200"]
+    container_name: secretops-vault
+    ports:
+      - "8200:8200"
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: "root"
+      VAULT_DEV_ROOT_TOKEN_ID: secretops-root-token
       VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-    cap_add: [IPC_LOCK]
-    networks: [secretops]
+    cap_add:
+      - IPC_LOCK
+    command: server -dev
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedok=true&uninitok=true"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  ai-engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    container_name: secretops-ai
+    ports:
+      - "5001:5001"
+    environment:
+      PORT: "5001"
+      API_BACKEND_URL: "http://api-backend:8080"
+      ENCRYPTION_KEY: "secretops-32-byte-encryption-key!!"
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "secretops-root-token"
+    volumes:
+      - repo-cache:/tmp/repos
+      - api-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5001/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: on-failure
+
+  api-backend:
+    build:
+      context: ./api-backend
+      dockerfile: Dockerfile
+    container_name: secretops-api
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "secretops-root-token"
+      DB_PATH: "/data/secretops.db"
+      AI_ENGINE_URL: "http://ai-engine:5001"
+      ENCRYPTION_KEY: "secretops-32-byte-encryption-key!!"
+    volumes:
+      - api-data:/data
+      - repo-cache:/tmp/repos
+    depends_on:
+      vault:
+        condition: service_healthy
+      ai-engine:
+        condition: service_healthy
+    restart: on-failure
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: secretops-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      API_BACKEND_URL: "http://api-backend:8080"
+    depends_on:
+      - api-backend
+    restart: on-failure
 
 volumes:
-  backend_data:
-
-networks:
-  secretops:
-    driver: bridge
+  api-data:
+  repo-cache:

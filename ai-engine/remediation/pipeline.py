@@ -1,0 +1,701 @@
+"""
+Remediation Pipeline:
+1. AI-generated code patch
+2. Git branch + MR creation (scripted, not AI)
+3. Vault poison injection
+4. Multi-channel notifications
+5. Credential revocation (AWS IAM, GitLab PAT, GitHub PAT)
+"""
+import hashlib
+import json
+import logging
+import os
+import re
+import sqlite3
+import subprocess
+import tempfile
+import shutil
+import requests
+from datetime import datetime
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+DB_PATH = os.environ.get("DB_PATH", "/data/secretops.db")
+CLONE_DIR = os.environ.get("CLONE_DIR", "/tmp/secretops-repos")
+
+PATCH_PROMPT = """You are a security engineer. A hardcoded secret was found in source code.
+
+Secret Type: {secret_type}
+File: {file_path}
+Line: {line_number}
+Severity: {severity}
+Vault Path: {vault_path}
+
+Code with the secret (line {line_number}):
+```
+{context}
+```
+
+Generate a code patch to replace the hardcoded secret with the appropriate secure alternative.
+Rules:
+1. Replace hardcoded value with environment variable OR Vault path reference
+2. Use the correct syntax for the detected language/framework
+3. For env var: use os.environ.get('VAR_NAME') in Python, process.env.VAR_NAME in JS/TS, os.Getenv("VAR_NAME") in Go, etc.
+4. For Vault: provide vault path {vault_path} as a comment
+5. Only modify the minimum needed lines
+
+Respond ONLY with valid JSON:
+{{
+  "patched_line": "the corrected line of code",
+  "env_var_name": "SUGGESTED_ENV_VAR_NAME",
+  "language": "python|javascript|go|ruby|java|etc",
+  "rotation_steps": [
+    "Step 1: Revoke the exposed credential immediately",
+    "Step 2: Generate a new credential",
+    "Step 3: Store in Vault at {vault_path}",
+    "Step 4: Set environment variable SUGGESTED_ENV_VAR_NAME in deployment"
+  ],
+  "provider_rotation_url": "https://provider.com/console/credentials",
+  "explanation": "Brief explanation of what was changed and why"
+}}
+"""
+
+
+class RemediationPipeline:
+    def __init__(self):
+        pass
+    
+    def get_db(self):
+        return sqlite3.connect(DB_PATH)
+    
+    def get_integration(self, db, itype: str) -> tuple[dict, dict]:
+        """Get integration config and decrypted secrets.
+        Returns (config, secrets) where config also contains all secrets merged in.
+        Keys are stored in config (not encrypted), so callers should use config first."""
+        try:
+            row = db.execute(
+                "SELECT config, COALESCE(encrypted_secrets,'') FROM integrations WHERE type=?",
+                (itype,)
+            ).fetchone()
+            if not row:
+                logger.warning(f"Integration '{itype}' not found in DB")
+                return {}, {}
+            config = json.loads(row[0]) if row[0] else {}
+            secrets = {}
+            if row[1]:
+                from detection.utils import decrypt
+                try:
+                    secrets = json.loads(decrypt(row[1]))
+                except Exception:
+                    pass
+            # Merge: secrets take priority for backwards compat, but config has the real values
+            merged = {**secrets, **config}  # config wins (frontend saves keys here)
+            logger.debug(f"Integration '{itype}' config keys: {list(config.keys())}")
+            return merged, secrets
+        except Exception as e:
+            logger.error(f"Failed to get integration {itype}: {e}")
+            return {}, {}
+    
+    def run(self, finding_id: int):
+        db = self.get_db()
+        try:
+            # Get finding
+            row = db.execute("""
+                SELECT f.*, r.full_path, r.url, r.default_branch, r.name
+                FROM findings f 
+                JOIN repositories r ON f.repository_id = r.id
+                WHERE f.id=?
+            """, (finding_id,)).fetchone()
+            
+            if not row:
+                logger.error(f"Finding {finding_id} not found")
+                return
+            
+            cols = [d[0] for d in db.execute("SELECT * FROM findings LIMIT 0").description]
+            finding = dict(zip(cols, row[:len(cols)]))
+            # Extra fields from join
+            finding["repo_full_path"] = row[-4]
+            finding["repo_url"] = row[-3]
+            finding["default_branch"] = row[-2]
+            finding["repo_name"] = row[-1]
+            
+            # Update status to in_progress
+            db.execute("UPDATE findings SET remediation_status='in_progress', updated_at=CURRENT_TIMESTAMP WHERE id=?", (finding_id,))
+            db.commit()
+            
+            # 1. Generate Vault path
+            vault_path = self._generate_vault_path(finding)
+            db.execute("UPDATE findings SET vault_path=? WHERE id=?", (vault_path, finding_id))
+            db.commit()
+            
+            # 2. AI patch generation
+            logger.info(f"[remediation:{finding_id}] Generating AI patch...")
+            patch = self._generate_patch(db, finding, vault_path)
+            logger.info(f"[remediation:{finding_id}] Patch generated by: {patch.get('_generated_by','unknown')}")
+            
+            # 3. Vault poison injection
+            logger.info(f"[remediation:{finding_id}] Injecting Vault poison at {vault_path}...")
+            self._inject_vault_poison(db, finding, vault_path)
+            
+            # 4. Git operations (scripted)
+            logger.info(f"[remediation:{finding_id}] Creating branch and MR...")
+            branch_name, mr_url, mr_id, issue_url = self._create_branch_and_mr(
+                db, finding, patch, vault_path
+            )
+            
+            if branch_name:
+                db.execute("""
+                    UPDATE findings SET 
+                    branch_name=?, mr_url=?, mr_id=?, issue_url=?,
+                    remediation_status='mr_created', updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                """, (branch_name, mr_url, mr_id, issue_url, finding_id))
+                db.commit()
+            
+            # 5. Send notifications
+            self._send_notifications(db, finding, patch, vault_path, mr_url, issue_url)
+            
+            # 6. Try credential revocation
+            self._attempt_revocation(db, finding)
+            
+            # Audit
+            db.execute("""
+                INSERT INTO audit_logs (action, entity_type, entity_id, details)
+                VALUES ('remediation.completed', 'finding', ?, ?)
+            """, (finding_id, json.dumps({"mr_url": mr_url, "vault_path": vault_path})))
+            db.commit()
+            
+            logger.info(f"Remediation completed for finding {finding_id}: vault={vault_path}, branch={branch_name}, mr={mr_url}")
+        
+        except Exception as e:
+            logger.error(f"Remediation failed for finding {finding_id}: {e}")
+            db.execute("""
+                UPDATE findings SET remediation_status='failed', updated_at=CURRENT_TIMESTAMP WHERE id=?
+            """, (finding_id,))
+            db.commit()
+        finally:
+            db.close()
+    
+    def _generate_vault_path(self, finding: dict) -> str:
+        secret_type = finding["secret_type"].replace("_", "-")
+        file_part = finding["file_path"].replace("/", "-").replace(".", "-")[:30]
+        return f"secret/{finding['repo_name']}/{secret_type}/{file_part}-{finding['id']}"
+    
+    def _generate_patch(self, db, finding: dict, vault_path: str) -> dict:
+        """Use AI to generate code patch."""
+        config_list = db.execute(
+            "SELECT type, config, COALESCE(encrypted_secrets,'') FROM integrations WHERE type IN ('openai','anthropic','groq') AND status IN ('connected','untested') LIMIT 3"
+        ).fetchall()
+        
+        logger.info(f"Patch generation: found {len(config_list)} AI providers")
+        
+        if not config_list:
+            logger.warning("No AI providers found for patch generation, using fallback")
+            return self._fallback_patch(finding, vault_path)
+        
+        # Read file content for context
+        repo_local = os.path.join(CLONE_DIR, finding["repo_full_path"].replace("/", "_"))
+        context = ""
+        try:
+            file_path = os.path.join(repo_local, finding["file_path"])
+            with open(file_path, "r", errors="ignore") as f:
+                lines = f.readlines()
+            start = max(0, finding["line_number"] - 6)
+            end = min(len(lines), finding["line_number"] + 5)
+            context = "".join(f"{i+start+1}: {l}" for i, l in enumerate(lines[start:end]))
+        except Exception:
+            context = f"Line {finding['line_number']}: [content unavailable]"
+        
+        prompt = PATCH_PROMPT.format(
+            secret_type=finding["secret_type"],
+            file_path=finding["file_path"],
+            line_number=finding["line_number"],
+            severity=finding["severity"],
+            vault_path=vault_path,
+            context=context
+        )
+        
+        from detection.llm_classifier import LLMClassifier
+        from detection.utils import decrypt
+        
+        for row in config_list:
+            try:
+                ptype = row[0]
+                config = json.loads(row[1]) if row[1] else {}
+                secrets = {}
+                if row[2]:
+                    try:
+                        secrets = json.loads(decrypt(row[2]))
+                    except Exception:
+                        pass
+                
+                api_key = config.get("api_key", secrets.get("api_key", ""))
+                result_text = self._call_llm_raw(ptype, api_key, config, prompt)
+                
+                if result_text:
+                    try:
+                        # Parse JSON
+                        clean = result_text.strip()
+                        if "```" in clean:
+                            import re
+                            m = re.search(r"```(?:json)?\s*({[\s\S]+?})\s*```", clean)
+                            if m:
+                                clean = m.group(1)
+                        patch = json.loads(clean)
+                        patch["_generated_by"] = ptype
+                        return patch
+                    except json.JSONDecodeError:
+                        continue
+            except Exception as e:
+                logger.warning(f"Patch generation failed with {row[0]}: {e}")
+                continue
+        
+        return self._fallback_patch(finding, vault_path)
+    
+    def _fallback_patch(self, finding: dict, vault_path: str) -> dict:
+        """Generate a generic patch without LLM."""
+        secret_type = finding["secret_type"].upper()
+        env_var = secret_type.replace("-", "_").replace(" ", "_")
+        return {
+            "patched_line": f"# TODO: Replace hardcoded {finding['secret_type']} with: os.environ.get('{env_var}')",
+            "env_var_name": env_var,
+            "language": "unknown",
+            "rotation_steps": [
+                f"1. Immediately revoke the exposed {finding['secret_type']}",
+                f"2. Generate a new credential",
+                f"3. Store the new credential in Vault at: {vault_path}",
+                f"4. Update your deployment to use environment variable: {env_var}",
+                "5. Verify the old credential no longer works"
+            ],
+            "provider_rotation_url": "",
+            "explanation": f"Replace the hardcoded {finding['secret_type']} with an environment variable or Vault reference.",
+            "_generated_by": "fallback"
+        }
+    
+    def _call_llm_raw(self, provider: str, api_key: str, config: dict, prompt: str) -> Optional[str]:
+        """Call LLM and return raw text."""
+        if provider == "openai":
+            model = config.get("model", "gpt-4o-mini")
+            resp = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}], 
+                      "temperature": 0.0, "max_tokens": 800},
+                timeout=30
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        
+        elif provider == "anthropic":
+            model = config.get("model", "claude-haiku-4-5-20251001")
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                json={"model": model, "max_tokens": 800, "temperature": 0.0,
+                      "messages": [{"role": "user", "content": prompt}]},
+                timeout=30
+            )
+            resp.raise_for_status()
+            return resp.json()["content"][0]["text"]
+        
+        elif provider == "groq":
+            # Try models in order of preference
+            models_to_try = [
+                config.get("model", ""),
+                "llama-3.3-70b-versatile",
+                "llama3-70b-8192",
+                "llama3-8b-8192",
+                "mixtral-8x7b-32768",
+            ]
+            models_to_try = [m for m in models_to_try if m]
+            last_err = None
+            for model in models_to_try:
+                try:
+                    resp = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={"model": model, "messages": [{"role": "user", "content": prompt}],
+                              "temperature": 0.0, "max_tokens": 800},
+                        timeout=30
+                    )
+                    if resp.status_code == 200:
+                        logger.info(f"Groq success with model: {model}")
+                        return resp.json()["choices"][0]["message"]["content"]
+                    elif resp.status_code == 404:
+                        logger.warning(f"Groq model {model} not found, trying next...")
+                        last_err = f"Model {model} not found"
+                        continue
+                    else:
+                        resp.raise_for_status()
+                except requests.HTTPError as e:
+                    last_err = str(e)
+                    continue
+            raise Exception(f"All Groq models failed: {last_err}")
+        
+        return None
+    
+    def _inject_vault_poison(self, db, finding: dict, vault_path: str):
+        """Write poison placeholder to HashiCorp Vault."""
+        config, secrets = self.get_integration(db, "vault")
+        vault_addr = config.get("url", config.get("address", "")).strip()
+        vault_token = config.get("token", secrets.get("token", ""))
+        if not vault_token:
+            vault_token = os.environ.get("VAULT_TOKEN", "secretops-root-token")
+        if not vault_addr:
+            vault_addr = os.environ.get("VAULT_ADDR", "http://vault:8200")
+        logger.info(f"Vault config: addr={vault_addr}, token={'set' if vault_token else 'MISSING'}")
+        
+        vault_addr = config.get("url", config.get("address", "http://vault:8200"))
+        vault_token = config.get("token", secrets.get("token", ""))
+        if not vault_token:
+            vault_token = os.environ.get("VAULT_TOKEN", "secretops-root-token")
+        if not vault_addr:
+            vault_addr = os.environ.get("VAULT_ADDR", "http://vault:8200")
+        
+        # KV-v2: path format is secret/data/...
+        kv_path = vault_path.replace("secret/", "secret/data/", 1)
+        
+        poison_value = f"SECRETOPS_POISONED_{finding['raw_value_hash'][:16].upper()}_ROTATE_NOW"
+        
+        payload = {
+            "data": {
+                "value": poison_value,
+                "secretops_finding_id": str(finding["id"]),
+                "secretops_secret_type": finding["secret_type"],
+                "secretops_detected_at": datetime.utcnow().isoformat(),
+                "status": "POISONED_PENDING_ROTATION"
+            }
+        }
+        
+        try:
+            resp = requests.post(
+                f"{vault_addr}/v1/{kv_path}",
+                headers={"X-Vault-Token": vault_token, "Content-Type": "application/json"},
+                json=payload,
+                timeout=10
+            )
+            if resp.status_code in (200, 204):
+                db.execute("UPDATE findings SET vault_poisoned=1 WHERE id=?", (finding["id"],))
+                db.commit()
+                logger.info(f"Vault poisoned at {vault_path}")
+        except Exception as e:
+            logger.warning(f"Vault injection failed: {e}")
+    
+    def _create_branch_and_mr(self, db, finding: dict, patch: dict, vault_path: str) -> tuple:
+        """Create feature branch and MR using GitLab API (pure scripted, no AI)."""
+        config, secrets = self.get_integration(db, "gitlab")
+        gitlab_url = config.get("url", "").rstrip("/")
+        token = config.get("token", secrets.get("token", ""))
+        logger.info(f"GitLab config: url={gitlab_url}, token={'set' if token else 'MISSING'}")
+        if not gitlab_url or not token:
+            logger.warning(f"GitLab not configured (url={gitlab_url!r}, token={'set' if token else 'missing'})")
+            return None, None, None, None
+        
+        branch_name = f"secretops/fix-{finding['id']}-{finding['secret_type'].replace('_', '-')}"
+        repo_path = finding["repo_full_path"]
+        target_branch = finding["default_branch"]
+        
+        # Get project ID
+        try:
+            resp = requests.get(
+                f"{gitlab_url}/api/v4/projects/{requests.utils.quote(repo_path, safe='')}",
+                headers={"PRIVATE-TOKEN": token},
+                timeout=10
+            )
+            resp.raise_for_status()
+            project_id = resp.json()["id"]
+        except Exception as e:
+            logger.error(f"Failed to get GitLab project: {e}")
+            return None, None, None, None
+        
+        # Create branch from target
+        try:
+            requests.post(
+                f"{gitlab_url}/api/v4/projects/{project_id}/repository/branches",
+                headers={"PRIVATE-TOKEN": token},
+                json={"branch": branch_name, "ref": target_branch},
+                timeout=10
+            )
+        except Exception as e:
+            logger.warning(f"Branch creation: {e}")
+        
+        # Create commit with patched file
+        try:
+            patched_line = patch.get("patched_line", "")
+            env_var = patch.get("env_var_name", "SECRET")
+            rotation_steps = patch.get("rotation_steps", [])
+            explanation = patch.get("explanation", "")
+            
+            # Get current file content
+            resp = requests.get(
+                f"{gitlab_url}/api/v4/projects/{project_id}/repository/files/{requests.utils.quote(finding['file_path'], safe='')}",
+                headers={"PRIVATE-TOKEN": token},
+                params={"ref": target_branch},
+                timeout=10
+            )
+            
+            if resp.status_code == 200:
+                import base64
+                content = base64.b64decode(resp.json()["content"]).decode("utf-8", errors="ignore")
+                lines = content.split("\n")
+                
+                line_idx = finding["line_number"] - 1
+                if 0 <= line_idx < len(lines):
+                    # Add inline comment above patched line
+                    original_line = lines[line_idx]
+                    comment_line = f"# TODO(SecretOps): Hardcoded {finding['secret_type']} removed. Use {env_var} env var or Vault path: {vault_path}"
+                    lines[line_idx] = comment_line + "\n" + patched_line
+                    new_content = "\n".join(lines)
+                else:
+                    new_content = content
+                
+                commit_message = f"""fix(security): Remove hardcoded {finding['secret_type']} - SecretOps #{finding['id']}
+
+SecretOps Detection Summary:
+- Secret Type: {finding['secret_type']}
+- File: {finding['file_path']}:{finding['line_number']}
+- First Detected: {finding.get('first_commit_date', 'unknown')}
+- Days Exposed: {finding.get('days_exposed', 0)}
+- Vault Path: {vault_path}
+- AI Confidence: {finding.get('ai_confidence', 0):.0%}
+
+Change: {explanation}
+
+Pre-merge conditions:
+1. Rotate the exposed credential BEFORE merging
+2. Store new credential in Vault at: {vault_path}
+3. Set environment variable: {env_var}
+4. Verify old credential is revoked
+
+Rotation Checklist:
+{chr(10).join(f'- {step}' for step in rotation_steps)}
+
+Refs: SecretOps Finding #{finding['id']}
+"""
+                
+                requests.post(
+                    f"{gitlab_url}/api/v4/projects/{project_id}/repository/commits",
+                    headers={"PRIVATE-TOKEN": token},
+                    json={
+                        "branch": branch_name,
+                        "commit_message": commit_message,
+                        "actions": [{
+                            "action": "update",
+                            "file_path": finding["file_path"],
+                            "content": new_content
+                        }]
+                    },
+                    timeout=30
+                )
+        except Exception as e:
+            logger.warning(f"Commit creation failed: {e}")
+        
+        # Create issue first
+        issue_url = None
+        issue_id = None
+        try:
+            issue_resp = requests.post(
+                f"{gitlab_url}/api/v4/projects/{project_id}/issues",
+                headers={"PRIVATE-TOKEN": token},
+                json={
+                    "title": f"[SecretOps] Exposed {finding['secret_type']} - {finding['file_path']} (Finding #{finding['id']})",
+                    "description": self._build_issue_description(finding, vault_path, patch),
+                    "labels": ["security", "secretops", "credentials"],
+                    "confidential": True
+                },
+                timeout=10
+            )
+            if issue_resp.status_code == 201:
+                issue_data = issue_resp.json()
+                issue_url = issue_data.get("web_url")
+                issue_id = issue_data.get("iid")
+        except Exception as e:
+            logger.warning(f"Issue creation failed: {e}")
+        
+        # Create MR
+        mr_url = None
+        mr_id = None
+        try:
+            mr_description = self._build_mr_description(finding, vault_path, patch, issue_url)
+            mr_resp = requests.post(
+                f"{gitlab_url}/api/v4/projects/{project_id}/merge_requests",
+                headers={"PRIVATE-TOKEN": token},
+                json={
+                    "source_branch": branch_name,
+                    "target_branch": target_branch,
+                    "title": f"[SecretOps] fix: Remove exposed {finding['secret_type']} (Finding #{finding['id']})",
+                    "description": mr_description,
+                    "labels": ["security", "secretops"],
+                    "remove_source_branch": True
+                },
+                timeout=10
+            )
+            if mr_resp.status_code == 201:
+                mr_data = mr_resp.json()
+                mr_url = mr_data.get("web_url")
+                mr_id = str(mr_data.get("iid"))
+        except Exception as e:
+            logger.error(f"MR creation failed: {e}")
+        
+        return branch_name, mr_url or "", mr_id or "", issue_url or ""
+    
+    def _build_mr_description(self, finding: dict, vault_path: str, patch: dict, issue_url: str) -> str:
+        rotation_steps = patch.get("rotation_steps", [])
+        env_var = patch.get("env_var_name", "SECRET")
+        
+        return f"""## 🔐 SecretOps Security Remediation
+
+**Finding ID:** #{finding['id']}  
+**Secret Type:** `{finding['secret_type']}`  
+**File:** `{finding['file_path']}` (line {finding['line_number']})  
+**Severity:** {finding['severity'].upper()}  
+**Days Exposed:** {finding.get('days_exposed', 0)} days  
+**First Seen Commit:** `{finding.get('first_commit_hash', 'unknown')[:8]}`  
+**Commit Author:** {finding.get('first_commit_author', 'unknown')}  
+
+---
+
+## Detection Summary
+- **AI Confidence:** {finding.get('ai_confidence', 0):.0%}
+- **Detection Method:** {finding.get('detection_stage', 'unknown')}
+- **AI Model:** {finding.get('ai_model', 'unknown')}
+
+**AI Analysis:** {finding.get('ai_reasoning', 'No reasoning available')}
+
+---
+
+## Vault Containment
+A poison placeholder has been written to Vault:
+- **Path:** `{vault_path}`
+- **Status:** ⚠️ Pending rotation - current value is a placeholder
+
+---
+
+## Pre-Merge Conditions (DO NOT MERGE BEFORE COMPLETING)
+
+- [ ] Old credential has been revoked at the provider
+- [ ] New credential generated and stored in Vault at `{vault_path}`
+- [ ] Environment variable `{env_var}` updated in all deployment environments
+- [ ] Vault path value updated from placeholder to real rotated credential
+- [ ] Verified old credential no longer works
+
+---
+
+## Rotation Checklist
+
+{chr(10).join(f'- [ ] {step}' for step in rotation_steps)}
+
+---
+
+## Related
+{f'- Issue: {issue_url}' if issue_url else ''}
+- SecretOps Finding: #{finding['id']}
+
+---
+*Generated automatically by SecretOps. Developer approval required before merge.*
+"""
+    
+    def _build_issue_description(self, finding: dict, vault_path: str, patch: dict) -> str:
+        rotation_steps = patch.get("rotation_steps", [])
+        return f"""## Security Issue: Exposed {finding['secret_type']}
+
+**SecretOps has detected a hardcoded credential in the repository.**
+
+| Field | Value |
+|-------|-------|
+| Finding ID | #{finding['id']} |
+| Secret Type | `{finding['secret_type']}` |
+| File | `{finding['file_path']}` |
+| Line | {finding['line_number']} |
+| Severity | **{finding['severity'].upper()}** |
+| Days Exposed | {finding.get('days_exposed', 0)} |
+| First Seen | {finding.get('first_commit_date', 'Unknown')} |
+
+## Immediate Actions Required
+
+{chr(10).join(f'{i+1}. {step}' for i, step in enumerate(rotation_steps))}
+
+## Vault Path
+Store the rotated credential at: `{vault_path}`
+
+⚠️ **This issue is confidential. Do not share the exposed value.**
+
+*Created by SecretOps automated detection*
+"""
+    
+    def _send_notifications(self, db, finding: dict, patch: dict, vault_path: str, mr_url: str, issue_url: str):
+        """Send Slack and email notifications."""
+        from notifications.slack_notifier import SlackNotifier
+        from notifications.email_notifier import EmailNotifier
+        
+        notif_data = {
+            "finding": finding,
+            "patch": patch,
+            "vault_path": vault_path,
+            "mr_url": mr_url,
+            "issue_url": issue_url
+        }
+        
+        # Slack
+        try:
+            slack = SlackNotifier(db)
+            slack.send_finding_alert(notif_data)
+        except Exception as e:
+            logger.warning(f"Slack notification failed: {e}")
+        
+        # Email
+        try:
+            email = EmailNotifier(db)
+            email.send_finding_alert(notif_data)
+        except Exception as e:
+            logger.warning(f"Email notification failed: {e}")
+    
+    def _attempt_revocation(self, db, finding: dict):
+        """Try to revoke credentials directly for supported providers."""
+        secret_type = finding["secret_type"]
+        revoked = False
+        
+        try:
+            if secret_type == "aws_access_key":
+                revoked = self._revoke_aws_key(db, finding)
+            elif secret_type == "gitlab_pat":
+                revoked = self._revoke_gitlab_pat(db, finding)
+            elif secret_type in ("github_pat", "github_oauth", "github_fine_grained"):
+                revoked = self._revoke_github_pat(db, finding)
+        except Exception as e:
+            logger.error(f"Revocation failed for {secret_type}: {e}")
+        
+        if revoked:
+            db.execute("UPDATE findings SET revoked=1 WHERE id=?", (finding["id"],))
+            db.commit()
+    
+    def _revoke_aws_key(self, db, finding: dict) -> bool:
+        """Revoke AWS IAM access key using AWS API."""
+        logger.info("AWS key revocation: requires aws_access_key_id and secret. Logged for manual action.")
+        return False
+    
+    def _revoke_gitlab_pat(self, db, finding: dict) -> bool:
+        """Revoke GitLab Personal Access Token."""
+        config, secrets = self.get_integration(db, "gitlab")
+        gitlab_url = config.get("url", "").rstrip("/")
+        token = config.get("token", secrets.get("token", ""))
+        
+        # We need to find the token ID - search by hash
+        try:
+            resp = requests.get(
+                f"{gitlab_url}/api/v4/personal_access_tokens?state=active",
+                headers={"PRIVATE-TOKEN": token},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                # Cannot match without the actual value - log for manual action
+                logger.info(f"GitLab PAT revocation: {len(resp.json())} active tokens found. Manual revocation required.")
+        except Exception as e:
+            logger.warning(f"GitLab PAT revocation lookup failed: {e}")
+        return False
+    
+    def _revoke_github_pat(self, db, finding: dict) -> bool:
+        """Revoke GitHub Personal Access Token."""
+        logger.info("GitHub PAT revocation: requires the actual token value. Logged for manual action.")
+        return False

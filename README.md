@@ -1,119 +1,227 @@
-# SecretOps 
-## AI-Based Secret Management within DevSecOps Workflows
+# SecretOps — Automated Secret Detection & Remediation Platform
 
-Graduation work project 
+SecretOps is a four-service microarchitecture for automated detection, triage, and remediation of exposed credentials in GitLab repositories.
 
 ---
 
 ## Architecture
 
-| Service       | Tech                          | Port | Role |
-|---------------|-------------------------------|------|------|
-| **Backend**   | Go 1.21 + Gin + SQLite (WAL)  | 8080 | REST API, credential storage, job dispatch |
-| **CLI Service** | Python 3.11 + Flask          | 5001 | AI detection, remediation orchestration |
-| **Frontend**  | Next.js 15 + React 19 + TS   | 3000 | Workflow UI |
-| **Vault**     | HashiCorp Vault 1.17 (KV-v2) | 8200 | Poison injection, audit log |
+| Service | Stack | Port |
+|---------|-------|------|
+| API Backend | Go 1.21 + Gin + SQLite (WAL) | 8080 |
+| AI Engine | Python 3.11 + Flask | 5001 |
+| Frontend | Next.js 15 + React 19 | 3000 |
+| Vault | HashiCorp Vault 1.17 (KV-v2) | 8200 |
 
 ---
 
 ## Quick Start
 
+### Prerequisites
+- Docker and Docker Compose 
+- 4 GB RAM minimum
+
+### 1. Clone and configure
+
 ```bash
-# 1. Clone and start
-docker compose up --build
+git clone <your-repo>
+cd secretops
+cp .env.example .env
+# Edit .env with your values
+```
 
-# 2. Open browser
-open http://localhost:3000
+### 2. Generate a 32-byte encryption key
 
-# 3. Follow the 4-step workflow:
-#    Step 1: Integrations — configure Claude AI, GitLab, Vault, Slack, Email
-#    Step 2: Projects     — import GitLab repos, select AI model, click Analyze
-#    Step 3: Findings     — review AI-detected secrets, trigger remediation
-#    Step 4: Remediation  — monitor 7-stage pipeline, post-merge verification
+```bash
+openssl rand -base64 24
+# Paste output into ENCRYPTION_KEY in .env
+```
+
+### 3. Start all services
+
+```bash
+docker compose up -d
+```
+
+### 4. Open the dashboard
+
+Visit **http://localhost:3000**
+
+---
+
+## Environment Variables
+
+Create a `.env` file in the project root (Docker Compose will pick it up automatically):
+
+```env
+# Shared encryption key — must be exactly 32 bytes
+ENCRYPTION_KEY=your-32-byte-key-here-changeme!!
+
+# Vault (dev mode uses a static root token)
+VAULT_TOKEN=secretops-root-token
+
+# Optional: override default URLs
+API_BACKEND_URL=http://localhost:8080
+AI_ENGINE_URL=http://localhost:5001
+```
+
+> **Note:** In production, replace the Vault dev-mode container with a properly initialized Vault instance and update `VAULT_TOKEN` accordingly.
+
+---
+
+## First-Time Setup (UI Walkthrough)
+
+1. **Integrations → GitLab** — Enter your GitLab URL and a Personal Access Token with `api` + `read_repository` scopes. Click **Save & Test**.
+2. **Integrations → HashiCorp Vault** — Enter the Vault URL and root token. Click **Save & Test**.
+3. **Integrations → AI Providers** — Add at least one provider (OpenAI, Anthropic, Groq, or local Ollama). Multiple keys enable automatic failover when rate limits are hit.
+4. **Integrations → Slack** — Paste a Slack Incoming Webhook URL. Click **Save & Test**.
+5. **Integrations → SMTP** — Configure email delivery. Click **Save & Test**.
+6. **Integrations → Alert Recipients** — Add developers, team leads, and DevSecOps engineers who should receive alerts.
+7. **Repositories** — Browse your GitLab projects and click **Add & Scan** on any repository.
+8. Watch the **Scan** view for live progress.
+
+---
+
+## Detection Pipeline
+
+```
+Repository Clone
+      │
+      ▼
+ git log -S  ──── Records first-seen commit, author, date, days exposed
+      │
+      ▼
+ Regex Pre-Filter ──── 25+ provider-specific patterns (AWS, GitLab, Stripe, etc.)
+      │               High-specificity match + entropy → confirmed (0.95 confidence)
+      │               Matches false-positive patterns → rejected immediately
+      │               Everything else ↓
+      ▼
+ LLM Classification ── Context window around candidate sent to AI
+      │                 temperature=0.0 for deterministic results
+      │                 Returns: is_secret, confidence, severity, reasoning
+      ▼
+ Git History Correlation ── Enriches with commit metadata
+      │
+      ▼
+ Finding Saved → Appears in dashboard
 ```
 
 ---
 
-## The 7-Stage Remediation Pipeline
+## Remediation Pipeline
 
-| Stage | Name | Action |
-|-------|------|--------|
-| 0 | Git History Correlation | Scan commit log, calculate days_exposed, alert level |
-| 1 | AI Patch Generation | LLM generates patched code + MR description |
-| 2 | **Vault Poison Injection** | SECRETOPS_POISONED_... placeholder forces app runtime failure |
-| 3 | GitLab MR | Branch + commit + MR with rotation checklist |
-| 4 | GitLab Issue | Assigned to commit author via git blame |
-| 5 | Slack + Email | Block Kit alert + HTML email to security team |
-| 6 | Direct Revocation | AWS IAM / GitLab PAT / GitHub PAT API revocation |
-| + | Post-Merge Verify | Vault value comparison → auto-close or escalate |
+Triggered when a DevSecOps engineer marks a finding as **Confirmed**.
 
----
+```
+1. AI Patch Generation   — Context-aware code fix (env var / Vault path replacement)
+2. Vault Injection       — Poison placeholder written to KV-v2 path
+3. Branch Creation       — secretops/fix-{id}-{type} branch created via GitLab API
+4. Commit & MR           — Patched file committed, MR opened with rotation checklist
+5. Notifications         — Slack Block Kit alert + HTML email to all recipients
+6. Revocation Attempt    — AWS IAM / GitLab PAT / GitHub PAT revocation (where API supports)
+7. Verification Loop     — Background job reads Vault value daily and compares SHA-256 hash
+```
 
-## AI Providers Supported
-
-| Provider | Model | Privacy |
-|----------|-------|---------|
-| Claude (Anthropic) | claude-3-5-sonnet-20241022 | ZDR available |
-| OpenAI | gpt-4o, gpt-4o-mini | ZDR enterprise |
-| DeepSeek | deepseek-chat | PIPL applies |
-| **Ollama (local)** | llama3.1:8b |  Zero external transmission |
-
-Multiple API keys per provider supported — round-robin rotation on HTTP 429.
+The developer **must approve** the merge request. SecretOps never auto-merges.
 
 ---
 
-## Data Privacy Options
+## Rotation Verification
 
-1. **Vendor ZDR agreement** — contractual guarantee, no training data use
-2. **Accept provider defaults** — Anthropic/OpenAI don't train on API data by default  
-3. **Local Ollama** — zero external transmission, on-premise GPU, F1=0.900
+After the MR is merged, a background job runs daily:
 
----
-
-## Key Original Contributions
-
-1. **Hybrid Triage Detection** — regex pre-filter + LLM, 60-65% API call reduction
-2. **Vault Poison Injection** — novel soft-revocation working for ALL secret types
-3. **AI-Generated MR with Rotation Guide** — inescapable remediation loop
-4. **Git History Correlation** — days_exposed calculation + escalated alerts
+| Vault value == original hash | Result |
+|------------------------------|--------|
+| Same as exposed credential   | Status stays **open**; daily reminders sent |
+| Placeholder value detected   | Escalated reminder: "still contains placeholder" |
+| Different hash (rotated!)    | Finding **auto-closed**; resolution alert sent |
 
 ---
 
-## Environment Variables (optional, overridden by UI config)
+## Supported Credential Types
 
-```env
-# Backend
-PORT=8080
-DB_PATH=/app/data/secretops.db
+Secret detection covers 25+ providers including:
 
-# CLI Service  
-BACKEND_URL=http://backend:8080
-CLI_PORT=5001
-CONFIDENCE_THRESHOLD=0.70
+- AWS Access Keys & Session Tokens
+- GitLab & GitHub Personal Access Tokens
+- OpenAI, Anthropic, Groq API Keys
+- Stripe Live & Test Keys
+- Slack Bot Tokens & Webhook URLs
+- Google API Keys & Service Account credentials
+- Notion, Twilio, SendGrid, npm, Docker Hub, Cloudflare
 
-# Fallback AI keys (overridden by DB config)
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-proj-...
+Revocation is automated for: **AWS IAM**, **GitLab PAT**, **GitHub PAT**. For all others, rotation instructions with provider URLs are included in the MR.
 
-# Vault
-VAULT_ADDR=http://vault:8200
-VAULT_TOKEN=root
+---
+
+## Directory Structure
+
+```
+secretops/
+├── api-backend/         Go REST API + SQLite
+│   ├── cmd/main.go
+│   ├── internal/
+│   │   ├── api/         Handlers + Router
+│   │   ├── crypto/      AES-GCM encryption
+│   │   ├── db/          SQLite WAL schema
+│   │   ├── models/      Go structs
+│   │   └── services/    Async scan dispatch
+│   └── Dockerfile
+├── ai-engine/           Python detection + remediation
+│   ├── app.py
+│   ├── detection/       Regex patterns, LLM classifier, pipeline
+│   ├── git_ops/         Clone, git log -S history
+│   ├── remediation/     Pipeline, verifier
+│   ├── notifications/   Slack Block Kit, HTML email
+│   └── Dockerfile
+├── frontend/            Next.js 15 dashboard
+│   ├── src/
+│   │   ├── app/         Layout, globals, page router
+│   │   ├── components/  Sidebar + 7 view components
+│   │   ├── lib/api.ts   Typed API client
+│   │   └── types/       TypeScript interfaces
+│   └── Dockerfile
+├── vault-config/        Vault HCL config + init script
+├── docker-compose.yml
+└── README.md
 ```
 
 ---
 
 ## Development (without Docker)
 
+### API Backend
 ```bash
-# Backend
-cd backend && go mod tidy && go run cmd/main.go
-
-# CLI Service
-cd cli && pip install -r requirements.txt && python service.py
-
-# Frontend
-cd frontend && npm install && npm run dev
-
-# Vault (dev mode)
-vault server -dev -dev-root-token-id=root
+cd api-backend
+go mod tidy
+DB_PATH=./dev.db ENCRYPTION_KEY=dev-key-32bytes-padded-here!! go run ./cmd/main.go
 ```
+
+### AI Engine
+```bash
+cd ai-engine
+pip install -r requirements.txt
+API_BACKEND_URL=http://localhost:8080 python app.py
+```
+
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+## Security Notes
+
+- All credentials stored in SQLite are AES-GCM encrypted using `ENCRYPTION_KEY`
+- The same encryption key must be set for both `api-backend` and `ai-engine`
+- Vault is run in **dev mode** by default (data is ephemeral). For production, use the `vault.hcl` config in `vault-config/` and initialize properly with `vault-init.sh`
+- The poison placeholder format is: `SECRETOPS_POISONED_{hash[:16]}_ROTATE_NOW`
+
+---
+
+## License
+
+MIT

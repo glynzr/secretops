@@ -2,22 +2,13 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'SecretOps',
-  description: 'AI-Based Secret Management within DevSecOps Workflows',
+  title: 'SecretOps — Secret Detection & Remediation Platform',
+  description: 'AI-powered secrets scanning with automated remediation for GitLab repositories',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-      </head>
       <body>{children}</body>
     </html>
   )
