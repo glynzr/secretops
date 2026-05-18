@@ -3,19 +3,21 @@ package models
 import "time"
 
 type Integration struct {
-	ID               int64      `json:"id" db:"id"`
-	Type             string     `json:"type" db:"type"`
-	Provider         string     `json:"provider" db:"-"`
-	Config           string     `json:"config" db:"config"`
-	EncryptedSecrets string     `json:"-" db:"encrypted_secrets"`
-	Status           string     `json:"status" db:"status"`
-	LastTestedAt     *time.Time `json:"last_tested_at" db:"last_tested_at"`
-	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
+	ID               int64      `json:"id"`
+	Type             string     `json:"type"`
+	Provider         string     `json:"provider"`
+	Config           string     `json:"config"`
+	EncryptedSecrets string     `json:"-"`
+	Status           string     `json:"status"`
+	LastTestedAt     *time.Time `json:"last_tested_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 type Repository struct {
 	ID            int64      `json:"id"`
+	Provider      string     `json:"provider"`
+	RemoteID      string     `json:"remote_id"`
 	GitlabID      int64      `json:"gitlab_id"`
 	Name          string     `json:"name"`
 	FullPath      string     `json:"full_path"`
@@ -67,6 +69,7 @@ type Finding struct {
 	RemediationStatus string     `json:"remediation_status"`
 	Revoked           bool       `json:"revoked"`
 	RotationConfirmed bool       `json:"rotation_confirmed"`
+	SourceURL         string     `json:"source_url"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }

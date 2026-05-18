@@ -9,43 +9,42 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-CLASSIFICATION_PROMPT = """You are a security expert specializing in detecting leaked secrets and credentials in source code.
+CLASSIFICATION_PROMPT = """You are a security expert. Determine if this code contains a REAL hardcoded secret (API key, token, password, private key) that poses a security risk.
 
-Analyze the following code snippet and determine if it contains a REAL secret or credential that poses a security risk.
+Secret type detected: {secret_type}
+File: {file_path}
+Line: {line_number}
+Detected value: {masked_value}
 
-Rules for classification:
-1. HIGH ENTROPY: Real secrets typically have high Shannon entropy (>3.5 bits/char for random strings)
-2. CONTEXT MATTERS: Variable names like `test_key`, `example_secret`, `dummy_password` suggest false positives
-3. FILE TYPE: Config files, .env files, scripts are higher risk than test files or documentation
-4. PROVIDER FORMAT: Provider-specific formats (sk-*, ghp-*, AKIA*) are almost always real
-5. PLACEHOLDERS: Patterns like ${VAR}, <YOUR_KEY>, XXXXXX, or template strings are false positives
-6. COMMIT CONTEXT: If in a test file or example folder, lower confidence
-7. ENVIRONMENT VARIABLES: References to env vars (process.env.X, os.environ['X']) are NOT secrets
-
-Secret type: {secret_type}
-File path: {file_path}
-Line number: {line_number}
-
-Code snippet (surrounding context):
+Code context:
 ```
 {context}
 ```
 
-Detected value (potentially sensitive): {masked_value}
+Answer NO (is_secret=false) if ANY of these are true:
+- The value is an HTML attribute (class=, name=, type=, id=, href=, src=)
+- The value is fetched at runtime: request.POST.get(), os.environ, process.env, req.body, config[], settings.
+- The file is an HTML/template (.html, .htm, .jinja, .tpl, .ejs, .erb) — form fields are NOT secrets
+- The value contains function call syntax: .get(, .fetch(, .read(, .load(
+- The value is a variable name reference, not the actual secret value
+- The value is a placeholder: example, test, dummy, fake, XXXX, YOUR_, <KEY>
+- The line is a comment, import, or class definition
 
-Respond ONLY with a valid JSON object in exactly this format:
+Answer YES (is_secret=true) ONLY if:
+- It is a literal hardcoded value (string in quotes, not a variable reference)
+- It has the format of a real credential: AKIA..., sk_live_..., ghp_..., etc.
+- It would allow unauthorized access if extracted
+
+Respond ONLY with valid JSON:
 {{
   "is_secret": true,
   "confidence": 0.95,
-  "severity": "high",
-  "reasoning": "This appears to be a real AWS access key based on the AKIA prefix and high entropy. Found in a production configuration file.",
-  "secret_type": "aws_access_key",
-  "remediation_hint": "Rotate this AWS key immediately. Replace with: os.environ.get('AWS_ACCESS_KEY_ID') or store in Vault at secret/aws/credentials"
+  "reasoning": "One sentence explanation.",
+  "secret_type": "{secret_type}",
+  "remediation_hint": "Brief remediation action."
 }}
 
-Severity levels: "critical" (immediate revocation needed), "high" (rotate ASAP), "medium" (rotate soon), "low" (low risk)
-Confidence: 0.0-1.0 where 1.0 = certain secret, 0.0 = certain false positive
-If not a secret, set is_secret=false and confidence close to 0.
+Confidence: 1.0 = certain secret, 0.0 = certain false positive. If not a secret, set is_secret=false.
 """
 
 class LLMClassifier:

@@ -13,11 +13,11 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://frontend:3000"},
+		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Org-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
+		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
 	}))
 
@@ -25,12 +25,16 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 
 	v1 := r.Group("/api/v1")
 	{
-		// Health
 		v1.GET("/health", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "secretops-api"})
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		})
 
-		// Integrations
+		// Organisations
+		v1.GET("/orgs", h.GetOrgs)
+		v1.POST("/orgs", h.CreateOrg)
+		v1.DELETE("/orgs/:id", h.DeleteOrg)
+
+		// Integrations (scoped to org via ?org_id= or X-Org-ID header)
 		v1.GET("/integrations", h.GetIntegrations)
 		v1.POST("/integrations", h.SaveIntegration)
 		v1.POST("/integrations/:type/test", h.TestIntegration)
@@ -39,7 +43,9 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 		// Repositories
 		v1.GET("/repositories", h.GetRepositories)
 		v1.GET("/repositories/gitlab", h.ListGitLabRepositories)
+		v1.GET("/repositories/github", h.ListGitHubRepositories)
 		v1.POST("/repositories", h.AddRepository)
+		v1.DELETE("/repositories/:id", h.DeleteRepository)
 
 		// Scans
 		v1.POST("/scans", h.StartScan)
@@ -57,15 +63,15 @@ func SetupRouter(db *sql.DB) *gin.Engine {
 		v1.GET("/jobs", h.GetJobs)
 		v1.GET("/jobs/:id", h.GetJob)
 
-		// Dashboard stats
+		// Stats
 		v1.GET("/stats", h.GetStats)
 
-		// Notification recipients
+		// Recipients
 		v1.GET("/recipients", h.GetRecipients)
 		v1.POST("/recipients", h.AddRecipient)
 		v1.DELETE("/recipients/:id", h.DeleteRecipient)
 
-		// Audit log
+		// Audit
 		v1.GET("/audit", h.GetAuditLogs)
 	}
 

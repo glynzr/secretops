@@ -29,10 +29,81 @@ func NewHandler(db *sql.DB) *Handler {
 	}
 }
 
+// ---- Helpers ----
+
+func mustParseInt(s string) int64 {
+	n, _ := strconv.ParseInt(s, 10, 64)
+	return n
+}
+
+func (h *Handler) getOrgID(c *gin.Context) int64 {
+	if oid := c.Query("org_id"); oid != "" {
+		if n, err := strconv.ParseInt(oid, 10, 64); err == nil {
+			return n
+		}
+	}
+	if oid := c.GetHeader("X-Org-ID"); oid != "" {
+		if n, err := strconv.ParseInt(oid, 10, 64); err == nil {
+			return n
+		}
+	}
+	return 1 // default org
+}
+
+// ---- Organisations ----
+
+func (h *Handler) GetOrgs(c *gin.Context) {
+	rows, _ := h.db.Query(`SELECT id, name, slug, created_at FROM organisations ORDER BY id`)
+	defer rows.Close()
+	var orgs []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var name, slug, createdAt string
+		rows.Scan(&id, &name, &slug, &createdAt)
+		orgs = append(orgs, map[string]interface{}{"id": id, "name": name, "slug": slug, "created_at": createdAt})
+	}
+	if orgs == nil {
+		orgs = []map[string]interface{}{}
+	}
+	c.JSON(200, orgs)
+}
+
+func (h *Handler) CreateOrg(c *gin.Context) {
+	var req struct {
+		Name string `json:"name" binding:"required"`
+		Slug string `json:"slug"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Slug == "" {
+		req.Slug = strings.ToLower(strings.ReplaceAll(req.Name, " ", "-"))
+	}
+	res, err := h.db.Exec(`INSERT INTO organisations (name, slug) VALUES (?, ?)`, req.Name, req.Slug)
+	if err != nil {
+		c.JSON(409, gin.H{"error": "Organisation already exists"})
+		return
+	}
+	id, _ := res.LastInsertId()
+	c.JSON(201, gin.H{"id": id, "name": req.Name, "slug": req.Slug})
+}
+
+func (h *Handler) DeleteOrg(c *gin.Context) {
+	id := c.Param("id")
+	if id == "1" {
+		c.JSON(400, gin.H{"error": "Cannot delete default organisation"})
+		return
+	}
+	h.db.Exec(`DELETE FROM organisations WHERE id=?`, id)
+	c.JSON(200, gin.H{"message": "Deleted"})
+}
+
 // ---- Integrations ----
 
 func (h *Handler) GetIntegrations(c *gin.Context) {
-	rows, err := h.db.Query(`SELECT id, type, config, status, last_tested_at, created_at, updated_at FROM integrations`)
+	orgID := h.getOrgID(c)
+	rows, err := h.db.Query(`SELECT id, type, config, status, last_tested_at, created_at, updated_at FROM integrations WHERE org_id=?`, orgID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -86,15 +157,24 @@ func (h *Handler) SaveIntegration(c *gin.Context) {
 		}
 	}
 
-	_, err := h.db.Exec(`
-		INSERT INTO integrations (type, config, encrypted_secrets, status, updated_at)
-		VALUES (?, ?, ?, 'untested', CURRENT_TIMESTAMP)
-		ON CONFLICT(type) DO UPDATE SET
-			config=excluded.config,
-			encrypted_secrets=CASE WHEN excluded.encrypted_secrets != '' THEN excluded.encrypted_secrets ELSE encrypted_secrets END,
-			status='untested',
-			updated_at=CURRENT_TIMESTAMP
-	`, req.Type, string(configJSON), encryptedSecrets)
+	orgID := h.getOrgID(c)
+
+	// Check if integration exists for this org
+	var existingID int64
+	h.db.QueryRow(`SELECT id FROM integrations WHERE org_id=? AND type=?`, orgID, req.Type).Scan(&existingID)
+
+	var err error
+	if existingID > 0 {
+		_, err = h.db.Exec(`UPDATE integrations SET
+			config=?, encrypted_secrets=CASE WHEN ? != '' THEN ? ELSE encrypted_secrets END,
+			status='untested', updated_at=CURRENT_TIMESTAMP
+			WHERE org_id=? AND type=?`,
+			string(configJSON), encryptedSecrets, encryptedSecrets, orgID, req.Type)
+	} else {
+		_, err = h.db.Exec(`INSERT INTO integrations (org_id, type, config, encrypted_secrets, status, updated_at)
+			VALUES (?, ?, ?, ?, 'untested', CURRENT_TIMESTAMP)`,
+			orgID, req.Type, string(configJSON), encryptedSecrets)
+	}
 
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -106,7 +186,7 @@ func (h *Handler) SaveIntegration(c *gin.Context) {
 	// Run a live test and return status so the frontend Save & Test button works
 	var savedConfig string
 	var savedSecrets string
-	h.db.QueryRow(`SELECT config, COALESCE(encrypted_secrets,'') FROM integrations WHERE type=?`, req.Type).Scan(&savedConfig, &savedSecrets)
+	h.db.QueryRow(`SELECT config, COALESCE(encrypted_secrets,'') FROM integrations WHERE org_id=? AND type=?`, orgID, req.Type).Scan(&savedConfig, &savedSecrets)
 	var configMap map[string]interface{}
 	json.Unmarshal([]byte(savedConfig), &configMap)
 	secrets := map[string]string{}
@@ -221,7 +301,7 @@ func (h *Handler) testIntegrationConnection(intType string, config map[string]in
 		if webhookURL == "" {
 			return testResult{false, "Slack webhook URL required"}
 		}
-		payload := `{"text":"✅ SecretOps test notification — connection successful!"}`
+		payload := `{"text":" SecretOps test notification — connection successful!"}`
 		resp, err := http.Post(webhookURL, "application/json", strings.NewReader(payload))
 		if err != nil {
 			return testResult{false, fmt.Sprintf("Connection failed: %v", err)}
@@ -272,8 +352,30 @@ func (h *Handler) testIntegrationConnection(intType string, config map[string]in
 		}
 		return testResult{false, msg}
 
+	case "github":
+		token, _ := config["token"].(string)
+		if token == "" {
+			return testResult{false, "GitHub token required"}
+		}
+		req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return testResult{false, fmt.Sprintf("GitHub request failed: %v", err)}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			body, _ := io.ReadAll(resp.Body)
+			var user map[string]interface{}
+			json.Unmarshal(body, &user)
+			login, _ := user["login"].(string)
+			return testResult{true, fmt.Sprintf("GitHub connected as @%s", login)}
+		}
+		return testResult{false, fmt.Sprintf("GitHub returned %d", resp.StatusCode)}
+
 	case "ollama":
-		baseURL, _ := config["api_key"].(string) // reusing api_key field for base URL
+		baseURL, _ := config["api_key"].(string)
 		if baseURL == "" {
 			baseURL = "http://localhost:11434"
 		}
@@ -299,18 +401,31 @@ func (h *Handler) DeleteIntegration(c *gin.Context) {
 // ---- Repositories ----
 
 func (h *Handler) GetRepositories(c *gin.Context) {
-	rows, _ := h.db.Query(`SELECT id, COALESCE(gitlab_id,0), name, full_path, url, default_branch, last_scanned_at, created_at FROM repositories ORDER BY created_at DESC`)
+	orgID := h.getOrgID(c)
+	rows, _ := h.db.Query(`SELECT id, COALESCE(remote_id,''), name, full_path, url, default_branch, COALESCE(provider,'gitlab'), last_scanned_at, created_at FROM repositories WHERE org_id=? ORDER BY created_at DESC`, orgID)
 	defer rows.Close()
-	var repos []models.Repository
+	var repos []map[string]interface{}
 	for rows.Next() {
-		var r models.Repository
-		rows.Scan(&r.ID, &r.GitlabID, &r.Name, &r.FullPath, &r.URL, &r.DefaultBranch, &r.LastScannedAt, &r.CreatedAt)
-		repos = append(repos, r)
+		var id int64
+		var remoteID, name, fullPath, url, branch, provider string
+		var lastScanned, createdAt sql.NullString
+		rows.Scan(&id, &remoteID, &name, &fullPath, &url, &branch, &provider, &lastScanned, &createdAt)
+		repos = append(repos, map[string]interface{}{
+			"id": id, "remote_id": remoteID, "name": name, "full_path": fullPath,
+			"url": url, "default_branch": branch, "provider": provider,
+			"last_scanned_at": lastScanned.String, "created_at": createdAt.String,
+		})
 	}
 	if repos == nil {
-		repos = []models.Repository{}
+		repos = []map[string]interface{}{}
 	}
 	c.JSON(200, repos)
+}
+
+func (h *Handler) DeleteRepository(c *gin.Context) {
+	id := c.Param("id")
+	h.db.Exec(`DELETE FROM repositories WHERE id=?`, id)
+	c.JSON(200, gin.H{"message": "Deleted"})
 }
 
 func (h *Handler) ListGitLabRepositories(c *gin.Context) {
@@ -363,11 +478,14 @@ func (h *Handler) ListGitLabRepositories(c *gin.Context) {
 
 func (h *Handler) AddRepository(c *gin.Context) {
 	var req struct {
-		GitlabID      int64  `json:"gitlab_id"`
-		Name          string `json:"name"`
-		FullPath      string `json:"full_path"`
-		URL           string `json:"url"`
+		RemoteID      string `json:"remote_id"`
+		Name          string `json:"name" binding:"required"`
+		FullPath      string `json:"full_path" binding:"required"`
+		URL           string `json:"url" binding:"required"`
 		DefaultBranch string `json:"default_branch"`
+		Provider      string `json:"provider"`
+		// Legacy fields
+		GitlabID int64 `json:"gitlab_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -376,14 +494,69 @@ func (h *Handler) AddRepository(c *gin.Context) {
 	if req.DefaultBranch == "" {
 		req.DefaultBranch = "main"
 	}
-	res, err := h.db.Exec(`INSERT OR IGNORE INTO repositories (gitlab_id,name,full_path,url,default_branch) VALUES (?,?,?,?,?)`,
-		req.GitlabID, req.Name, req.FullPath, req.URL, req.DefaultBranch)
+	if req.Provider == "" {
+		req.Provider = "gitlab"
+	}
+	if req.RemoteID == "" && req.GitlabID != 0 {
+		req.RemoteID = fmt.Sprintf("%d", req.GitlabID)
+	}
+	orgID := h.getOrgID(c)
+	res, err := h.db.Exec(
+		`INSERT OR IGNORE INTO repositories (org_id,provider,remote_id,name,full_path,url,default_branch) VALUES (?,?,?,?,?,?,?)`,
+		orgID, req.Provider, req.RemoteID, req.Name, req.FullPath, req.URL, req.DefaultBranch)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	id, _ := res.LastInsertId()
 	c.JSON(201, gin.H{"id": id, "message": "Repository added"})
+}
+
+func (h *Handler) ListGitHubRepositories(c *gin.Context) {
+	orgID := h.getOrgID(c)
+	var config string
+	err := h.db.QueryRow(`SELECT config FROM integrations WHERE type='github' AND org_id=?`, orgID).Scan(&config)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "GitHub integration not configured"})
+		return
+	}
+	var configMap map[string]interface{}
+	json.Unmarshal([]byte(config), &configMap)
+	token, _ := configMap["token"].(string)
+	if token == "" {
+		c.JSON(400, gin.H{"error": "GitHub token missing"})
+		return
+	}
+
+	// Try user repos first, then org repos
+	var allRepos []map[string]interface{}
+	for _, endpoint := range []string{
+		"https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator",
+		"https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=organization_member",
+	} {
+		req, _ := http.NewRequest("GET", endpoint, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != 200 {
+			c.JSON(resp.StatusCode, gin.H{"error": fmt.Sprintf("GitHub returned %d: %s", resp.StatusCode, string(body))})
+			return
+		}
+		var repos []map[string]interface{}
+		json.Unmarshal(body, &repos)
+		allRepos = append(allRepos, repos...)
+		break
+	}
+	if allRepos == nil {
+		allRepos = []map[string]interface{}{}
+	}
+	c.JSON(200, allRepos)
 }
 
 // ---- Scans ----
@@ -399,8 +572,8 @@ func (h *Handler) StartScan(c *gin.Context) {
 	}
 
 	var repo models.Repository
-	err := h.db.QueryRow(`SELECT id, name, full_path, url, default_branch FROM repositories WHERE id=?`, req.RepositoryID).
-		Scan(&repo.ID, &repo.Name, &repo.FullPath, &repo.URL, &repo.DefaultBranch)
+	err := h.db.QueryRow(`SELECT id, name, full_path, url, default_branch, COALESCE(provider,'gitlab') FROM repositories WHERE id=?`, req.RepositoryID).
+		Scan(&repo.ID, &repo.Name, &repo.FullPath, &repo.URL, &repo.DefaultBranch, &repo.Provider)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "Repository not found"})
 		return
@@ -469,7 +642,7 @@ func (h *Handler) StreamScanStatus(c *gin.Context) {
 // ---- Findings ----
 
 func (h *Handler) GetFindings(c *gin.Context) {
-	query := `SELECT id, scan_id, repository_id, file_path, line_number, secret_type, raw_value_hash, COALESCE(masked_value,''), ai_confidence, COALESCE(ai_reasoning,''), COALESCE(ai_model,''), severity, status, COALESCE(detection_stage,''), COALESCE(first_commit_hash,''), COALESCE(first_commit_author,''), first_commit_date, total_commits, days_exposed, COALESCE(vault_path,''), vault_poisoned, COALESCE(mr_url,''), COALESCE(mr_id,''), COALESCE(issue_url,''), COALESCE(branch_name,''), remediation_status, revoked, rotation_confirmed, created_at, updated_at FROM findings WHERE 1=1`
+	query := `SELECT id, scan_id, repository_id, file_path, line_number, secret_type, raw_value_hash, COALESCE(masked_value,''), ai_confidence, COALESCE(ai_reasoning,''), COALESCE(ai_model,''), severity, status, COALESCE(detection_stage,''), COALESCE(first_commit_hash,''), COALESCE(first_commit_author,''), first_commit_date, total_commits, days_exposed, COALESCE(vault_path,''), vault_poisoned, COALESCE(mr_url,''), COALESCE(mr_id,''), COALESCE(issue_url,''), COALESCE(branch_name,''), remediation_status, revoked, rotation_confirmed, created_at, updated_at, COALESCE(source_url,'') FROM findings WHERE 1=1`
 	args := []interface{}{}
 
 	if status := c.Query("status"); status != "" {
@@ -508,7 +681,7 @@ func (h *Handler) GetFindings(c *gin.Context) {
 			&f.AIModel, &f.Severity, &f.Status, &f.DetectionStage, &f.FirstCommitHash,
 			&f.FirstCommitAuthor, &f.FirstCommitDate, &f.TotalCommits, &f.DaysExposed,
 			&f.VaultPath, &f.VaultPoisoned, &f.MrURL, &f.MrID, &f.IssueURL, &f.BranchName,
-			&f.RemediationStatus, &f.Revoked, &f.RotationConfirmed, &f.CreatedAt, &f.UpdatedAt)
+			&f.RemediationStatus, &f.Revoked, &f.RotationConfirmed, &f.CreatedAt, &f.UpdatedAt, &f.SourceURL)
 		findings = append(findings, f)
 	}
 	if findings == nil {
@@ -748,7 +921,3 @@ func (h *Handler) logAudit(action, entityType string, entityID int64, details st
 	h.db.Exec(`INSERT INTO audit_logs (action, entity_type, entity_id, details) VALUES (?,?,?,?)`, action, entityType, entityID, details)
 }
 
-func mustParseInt(s string) int64 {
-	n, _ := strconv.ParseInt(s, 10, 64)
-	return n
-}

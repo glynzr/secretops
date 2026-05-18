@@ -96,16 +96,16 @@ class SlackNotifier:
         }.get(reason, "Rotation not confirmed")
         
         blocks = [
-            {"type": "header", "text": {"type": "plain_text", "text": "🔔 SecretOps: Rotation Reminder"}},
+            {"type": "header", "text": {"type": "plain_text", "text": " SecretOps: Rotation Reminder"}},
             {"type": "section", "text": {"type": "mrkdwn", "text": f"*Finding #{finding_id}* — `{secret_type}`\n\n{reason_text}\n\nThe credential has been exposed for *{days} days* and rotation is not confirmed."}},
             {"type": "section", "text": {"type": "mrkdwn", "text": f"*Vault Path:* `{data['vault_path']}`\n\nPlease complete the rotation and update the Vault path with the new credential."}},
             {"type": "context", "elements": [{"type": "mrkdwn", "text": "SecretOps will send daily reminders until rotation is confirmed."}]}
         ]
-        self._post(blocks, f"🔔 Rotation reminder: Finding #{finding_id}")
+        self._post(blocks, f" Rotation reminder: Finding #{finding_id}")
     
     def send_resolution(self, data: dict):
         blocks = [
-            {"type": "header", "text": {"type": "plain_text", "text": "✅ SecretOps: Rotation Confirmed"}},
+            {"type": "header", "text": {"type": "plain_text", "text": " SecretOps: Rotation Confirmed"}},
             {"type": "section", "text": {"type": "mrkdwn", "text": f"Finding #{data['finding_id']} — `{data['secret_type']}` has been successfully rotated.\n\nVault path `{data['vault_path']}` now contains the new credential. Finding closed."}},
         ]
-        self._post(blocks, f"✅ Rotation confirmed: Finding #{data['finding_id']}")
+        self._post(blocks, f" Rotation confirmed: Finding #{data['finding_id']}")

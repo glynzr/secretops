@@ -90,7 +90,7 @@ class EmailNotifier:
         body = f"""
         <html><body style="font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px;">
         <div style="max-width: 600px; margin: 0 auto; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px;">
-            <h2 style="color: #f85149; margin-top: 0;">⚠️ SecretOps Security Alert</h2>
+            <h2 style="color: #f85149; margin-top: 0;"> SecretOps Security Alert</h2>
             <p style="color: #8b949e;">Finding #{finding['id']} — Automated remediation started</p>
             
             <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
@@ -121,7 +121,7 @@ class EmailNotifier:
         body = f"""
         <html><body style="font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px;">
         <div style="max-width: 600px; margin: 0 auto; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px;">
-            <h2 style="color: #f0883e; margin-top: 0;">🔔 SecretOps: Rotation Reminder</h2>
+            <h2 style="color: #f0883e; margin-top: 0;"> SecretOps: Rotation Reminder</h2>
             <p>Finding #{data['finding_id']} — <code>{data['secret_type']}</code> is still not rotated.</p>
             <p>Days exposed: <strong style="color: #f85149;">{data.get('days_exposed', 0)} days</strong></p>
             <p>Vault Path: <code>{data['vault_path']}</code></p>
@@ -134,9 +134,9 @@ class EmailNotifier:
         body = f"""
         <html><body style="font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px;">
         <div style="max-width: 600px; margin: 0 auto; background: #161b22; border: 1px solid #238636; border-radius: 8px; padding: 24px;">
-            <h2 style="color: #3fb950; margin-top: 0;">✅ SecretOps: Rotation Confirmed</h2>
+            <h2 style="color: #3fb950; margin-top: 0;"> SecretOps: Rotation Confirmed</h2>
             <p>Finding #{data['finding_id']} — <code>{data['secret_type']}</code> has been successfully rotated.</p>
             <p>Vault path <code>{data['vault_path']}</code> has been updated. Finding closed.</p>
         </div></body></html>
         """
-        self._send(f"[SecretOps] ✅ Rotation Confirmed — Finding #{data['finding_id']}", body)
+        self._send(f"[SecretOps]  Rotation Confirmed — Finding #{data['finding_id']}", body)

@@ -116,6 +116,42 @@ function SaveButton({ onClick, loading, label = 'Save & Test' }: SaveButtonProps
   );
 }
 
+// ─── GitHub ────────────────────────────────────────────────────────────────
+function GitHubSection({ integrations, onSaved }: { integrations: Integration[]; onSaved: () => void }) {
+  const existing = integrations.find(i => i.provider === 'github')
+  const [token, setToken] = useState('')
+  const [status, setStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [msg, setMsg] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const save = async () => {
+    setLoading(true); setStatus('testing')
+    try {
+      const res = await api.saveIntegration({ provider: 'github', config: { token } })
+      setStatus(res.status === 'connected' ? 'ok' : 'fail')
+      setMsg(res.message || '')
+      if (res.status === 'connected') onSaved()
+    } catch (e: any) { setStatus('fail'); setMsg(e.message) }
+    setLoading(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      <Field label="Personal Access Token (classic or fine-grained)" value={token} onChange={setToken} placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" secret />
+      <div className="text-xs text-muted">Requires <code>repo</code> scope for private repos, <code>public_repo</code> for public.</div>
+      <div className="flex items-center gap-4">
+        <SaveButton onClick={save} loading={loading} />
+        <TestBadge status={status} message={msg} />
+      </div>
+      {existing?.status === 'connected' && (
+        <div className="text-xs text-muted flex items-center gap-1.5">
+          <CheckCircle className="w-3.5 h-3.5 text-green-400" /> GitHub connected
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── GitLab ────────────────────────────────────────────────────────────────
 function GitLabSection({ integrations, onSaved }: { integrations: Integration[]; onSaved: () => void }) {
   const existing = integrations.find(i => i.provider === 'gitlab');
@@ -580,6 +616,16 @@ export function IntegrationsView() {
               defaultOpen={!connected('gitlab')}
             >
               <GitLabSection integrations={integrations} onSaved={fetchIntegrations} />
+            </IntegrationCard>
+
+            <IntegrationCard
+              title="GitHub"
+              description="GitHub repository scanning and pull request creation"
+              icon={<GitlabIcon className="w-5 h-5 text-white" />}
+              color="bg-gray-500/10"
+              defaultOpen={!connected('github')}
+            >
+              <GitHubSection integrations={integrations} onSaved={fetchIntegrations} />
             </IntegrationCard>
 
             <IntegrationCard

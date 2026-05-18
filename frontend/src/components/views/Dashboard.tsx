@@ -31,7 +31,7 @@ export default function Dashboard({ onStartScan, onNavigate }: {
     return () => clearInterval(interval)
   }, [])
 
-  const sevData = stats ? Object.entries(stats.severity_breakdown).map(([k, v]) => ({
+  const sevData = stats ? Object.entries(stats.type_breakdown).map(([k, v]) => ({
     name: k.charAt(0).toUpperCase() + k.slice(1),
     value: v,
     color: SEV_COLORS[k as keyof typeof SEV_COLORS] || '#8b949e'
@@ -82,7 +82,7 @@ export default function Dashboard({ onStartScan, onNavigate }: {
         />
         <StatCard
           label="Critical/High"
-          value={(stats?.severity_breakdown?.critical ?? 0) + (stats?.severity_breakdown?.high ?? 0)}
+          value={(stats?.type_breakdown?.critical ?? 0) + (stats?.type_breakdown?.high ?? 0)}
           icon={<Shield className="w-5 h-5 text-accent-red" />}
           trend="Requires attention"
           trendColor="text-accent-red"

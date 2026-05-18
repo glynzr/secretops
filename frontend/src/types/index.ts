@@ -64,6 +64,7 @@ export interface Finding {
   remediation_status?: string
   revoked?: boolean
   rotation_confirmed?: boolean
+  source_url?: string
   created_at: string
   updated_at: string
 }

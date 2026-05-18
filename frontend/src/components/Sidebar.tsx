@@ -3,13 +3,13 @@ import { Shield, Search, AlertTriangle, Settings, GitBranch, Zap, FileText, Acti
 import type { View } from '@/app/page'
 
 const navItems = [
-  { id: 'dashboard', icon: Activity, label: 'Dashboard' },
-  { id: 'repositories', icon: GitBranch, label: 'Repositories' },
-  { id: 'findings', icon: AlertTriangle, label: 'Findings' },
-  { id: 'scan', icon: Search, label: 'Scanner' },
-  { id: 'remediation', icon: Zap, label: 'Remediation' },
-  { id: 'integrations', icon: Settings, label: 'Integrations' },
-  { id: 'audit', icon: FileText, label: 'Audit Log' },
+  { id: 'dashboard',    icon: Activity,      label: 'Dashboard' },
+  { id: 'repositories', icon: GitBranch,     label: 'Repositories' },
+  { id: 'scan',         icon: Search,        label: 'Scanner' },
+  { id: 'findings',     icon: AlertTriangle, label: 'Findings' },
+  { id: 'remediation',  icon: Zap,           label: 'Remediation' },
+  { id: 'integrations', icon: Settings,      label: 'Integrations' },
+  { id: 'audit',        icon: FileText,      label: 'Audit Log' },
 ] as const
 
 export default function Sidebar({ activeView, onNavigate }: {
@@ -18,7 +18,6 @@ export default function Sidebar({ activeView, onNavigate }: {
 }) {
   return (
     <aside className="w-16 lg:w-56 flex flex-col h-full border-r border-border bg-surface shrink-0">
-      {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-border">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center shrink-0">
           <Shield className="w-4 h-4 text-white" />
@@ -29,7 +28,6 @@ export default function Sidebar({ activeView, onNavigate }: {
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 py-4 space-y-1 px-2">
         {navItems.map(({ id, icon: Icon, label }) => {
           const active = activeView === id
@@ -51,7 +49,6 @@ export default function Sidebar({ activeView, onNavigate }: {
         })}
       </nav>
 
-      {/* Footer */}
       <div className="border-t border-border px-4 py-3 hidden lg:block">
         <p className="text-xs text-fg-subtle font-mono">Fallback-first design</p>
         <p className="text-xs text-fg-subtle">Provider-agnostic AI</p>

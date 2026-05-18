@@ -25,13 +25,15 @@ CLONE_DIR = os.environ.get("CLONE_DIR", "/tmp/secretops-repos")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS integrations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT NOT NULL UNIQUE,
+    org_id INTEGER NOT NULL DEFAULT 1,
+    type TEXT NOT NULL,
     config TEXT NOT NULL DEFAULT '{}',
     encrypted_secrets TEXT,
     status TEXT DEFAULT 'untested',
     last_tested_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(org_id, type)
 );
 CREATE TABLE IF NOT EXISTS repositories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +77,7 @@ CREATE TABLE IF NOT EXISTS findings (
     first_commit_date DATETIME,
     total_commits INTEGER DEFAULT 0,
     days_exposed INTEGER DEFAULT 0,
+    source_url TEXT DEFAULT '',
     vault_path TEXT DEFAULT '',
     vault_poisoned INTEGER DEFAULT 0,
     mr_url TEXT DEFAULT '',
@@ -210,8 +213,10 @@ class DetectionPipeline:
                         ai_reasoning = "Detected via high-specificity regex pattern with high entropy."
                         is_secret = True
                         
-                        # Stage 2: LLM classification (only if not high-confidence regex match)
-                        if not candidate.skip_llm:
+                        # Stage 2: LLM classification (skip for HTML/template files and high-confidence matches)
+                        html_extensions = ('.html', '.htm', '.jinja', '.jinja2', '.tpl', '.ejs', '.erb', '.hbs', '.mustache', '.j2')
+                        is_template_file = file_path.lower().endswith(html_extensions)
+                        if not candidate.skip_llm and not is_template_file:
                             try:
                                 ai_result = self.classifier.classify(
                                     secret_type=candidate.secret_type,
@@ -223,7 +228,7 @@ class DetectionPipeline:
                                 if ai_result:
                                     is_secret = ai_result.get("is_secret", True)
                                     final_confidence = ai_result.get("confidence", candidate.confidence)
-                                    final_severity = ai_result.get("severity", candidate.severity)
+                                    # severity removed — all findings are treated equally
                                     ai_reasoning = ai_result.get("reasoning", "")
                                     ai_model = ai_result.get("_model", "unknown")
                                     
@@ -251,21 +256,30 @@ class DetectionPipeline:
                         
                         detection_stage = "regex_highconf" if candidate.skip_llm else "llm_classified"
                         
+                        # Build source URL for direct file link
+                        scm_url = gitlab_url.rstrip("/") if gitlab_url else ""
+                        source_url = ""
+                        if scm_url and repo_path:
+                            if "github.com" in scm_url:
+                                source_url = f"{scm_url}/{repo_path}/blob/{branch}/{file_path}#L{candidate.line_number}"
+                            else:
+                                source_url = f"{scm_url}/{repo_path}/-/blob/{branch}/{file_path}#L{candidate.line_number}"
+
                         # Save finding
                         db.execute("""
                             INSERT OR IGNORE INTO findings 
                             (scan_id, repository_id, file_path, line_number, secret_type,
                              raw_value_hash, masked_value, ai_confidence, ai_reasoning, ai_model,
                              severity, status, detection_stage, first_commit_hash, first_commit_author,
-                             first_commit_date, total_commits, days_exposed)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                             first_commit_date, total_commits, days_exposed, source_url)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """, (
                             scan_id, repo_id, file_path, candidate.line_number,
                             candidate.secret_type, value_hash, masked,
                             final_confidence, ai_reasoning, ai_model,
                             final_severity, "open", detection_stage,
                             first_commit_hash, first_commit_author, first_commit_date,
-                            total_commits, days_exposed
+                            total_commits, days_exposed, source_url
                         ))
                         db.commit()
                         findings_count += 1

@@ -18,7 +18,7 @@ SecretOps is a four-service microarchitecture for automated detection, triage, a
 ## Quick Start
 
 ### Prerequisites
-- Docker and Docker Compose 
+- Docker 24+ and Docker Compose v2
 - 4 GB RAM minimum
 
 ### 1. Clone and configure

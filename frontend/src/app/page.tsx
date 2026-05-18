@@ -24,13 +24,13 @@ export default function Home() {
     <div className="flex h-screen overflow-hidden bg-canvas">
       <Sidebar activeView={activeView} onNavigate={setActiveView} />
       <main className="flex-1 overflow-auto">
-        {activeView === 'dashboard' && <Dashboard onStartScan={handleStartScan} onNavigate={setActiveView} />}
-        {activeView === 'findings' && <FindingsView />}
-        {activeView === 'scan' && <ScanView scanId={activeScanId} onNavigate={setActiveView} />}
+        {activeView === 'dashboard'    && <Dashboard onStartScan={handleStartScan} onNavigate={setActiveView} />}
+        {activeView === 'findings'     && <FindingsView />}
+        {activeView === 'scan'         && <ScanView scanId={activeScanId} onNavigate={setActiveView} />}
         {activeView === 'integrations' && <IntegrationsView />}
         {activeView === 'repositories' && <RepositoriesView onStartScan={handleStartScan} />}
-        {activeView === 'remediation' && <RemediationView />}
-        {activeView === 'audit' && <AuditView />}
+        {activeView === 'remediation'  && <RemediationView />}
+        {activeView === 'audit'        && <AuditView />}
       </main>
     </div>
   )
